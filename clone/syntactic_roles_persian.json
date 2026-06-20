@@ -1,0 +1,144 @@
+{
+    "description": "Complete syntactic roles for Persian grammar - organized by category with sub-items",
+    "categories": {
+        "גרעין_נושא_נשוא": [
+            { "full": "גרעין", "abbr": "ג'", "halfRow": true },
+            { "full": "לוואי", "abbr": "ל'", "halfRow": true },
+            {
+                "full": "נושא",
+                "abbr": "נו'",
+                "halfRow": true,
+                "directSelect": true,
+                "subItems": []
+            },
+            {
+                "full": "נשוא",
+                "abbr": "נש'",
+                "halfRow": true,
+                "directSelect": true,
+                "subItems": [
+                    { "full": "נשוא שמני", "abbr": "נשו\"ש" }
+                ]
+            },
+            { "full": "אוגד", "abbr": "אוגד", "fullRow": true }
+        ],
+        "מושא": [
+            {
+                "full": "מושא",
+                "abbr": "מו'",
+                "fullRow": true,
+                "subItems": [
+                    { "full": "מושא ישיר", "abbr": "מ\"י" },
+                    { "full": "מושא פרדיקטיבי", "abbr": "מ. פרדיקטיבי" },
+                    { "full": "מושא כלוואי", "abbr": "מ. כלוואי" },
+                    {
+                        "full": "מושא + מילת יחס",
+                        "abbr": "מ. + מ\"י",
+                        "isGroup": true,
+                        "subItems": [
+                            { "full": "מושא را", "abbr": "מ. را" },
+                            { "full": "מושא از", "abbr": "מ. از" },
+                            { "full": "מושא با", "abbr": "מ. با" },
+                            { "full": "מושא به", "abbr": "מ. به" },
+                            { "full": "מושא بر", "abbr": "מ. بر" },
+                            { "full": "מושא رو(ی)", "abbr": "מ. رو(ی)" },
+                            { "full": "מושא در", "abbr": "מ. در" },
+                            { "full": "מושא \"על אודות\"", "abbr": "מ. \"על אודות\"" }
+                        ]
+                    }
+                ]
+            }
+        ],
+        "תיאור": [
+            {
+                "full": "תיאור",
+                "abbr": "ת'",
+                "fullRow": true,
+                "subItems": [
+                    { "full": "תיאור זמן", "abbr": "ת' זמן" },
+                    { "full": "תיאור מקום", "abbr": "ת' מקום" },
+                    { "full": "תיאור אופן", "abbr": "ת' אופן" },
+                    { "full": "תיאור סיבה", "abbr": "ת' סיבה" },
+                    { "full": "תיאור תכלית", "abbr": "ת' תכלית" },
+                    { "full": "תיאור מצב", "abbr": "ת' מצב" }
+                ]
+            }
+        ],
+        "פסוקיות": [
+            { "full": "משפט עיקרי", "abbr": "מ' עיקרי", "fullRow": true },
+            {
+                "full": "פסוקית מושא",
+                "abbr": "פס' מושא",
+                "halfRow": true,
+                "subItems": [
+                    { "full": "פסוקית מושא תוכן", "abbr": "פס' מושא תוכן" },
+                    { "full": "פסוקית מושא מודאלית", "abbr": "פס' מושא מודאלית" }
+                ]
+            },
+            {
+                "full": "פסוקית נושא",
+                "abbr": "פס' נושא",
+                "halfRow": true,
+                "subItems": [
+                    { "full": "פסוקית נושא תוכן", "abbr": "פס' נושא תוכן" },
+                    { "full": "פסוקית נושא מודאלית", "abbr": "פס' נושא מודאלית" }
+                ]
+            },
+            {
+                "full": "פסוקית תיאור",
+                "abbr": "פס' ת'",
+                "fullRow": true,
+                "subItems": [
+                    { "full": "פסוקית מצב", "abbr": "פס' מצב" },
+                    { "full": "פסוקית זמן", "abbr": "פס' זמן" },
+                    { "full": "פסוקית תכלית", "abbr": "פס' תכלית" },
+                    { "full": "פסוקית מקום", "abbr": "פס' מקום" },
+                    { "full": "פסוקית סיבה", "abbr": "פס' סיבה" },
+                    { "full": "פסוקית ויתור", "abbr": "פס' ויתור" }
+                ]
+            },
+            {
+                "full": "פסוקית לוואי",
+                "abbr": "פס' לוואי",
+                "halfRow": true,
+                "subItems": [
+                    { "full": "פסוקית לוואי תוכן", "abbr": "פס. לוואי תוכן" }
+                ]
+            },
+            {
+                "full": "פסוקית זיקה",
+                "abbr": "פס' זיקה",
+                "halfRow": true,
+                "subItems": [
+                    { "full": "פסוקית זיקה מצמצמת", "abbr": "פס' זיקה מצמצמת" },
+                    { "full": "פסוקית זיקה לא מצמצמת", "abbr": "פס' זיקה לא מצמצמת" }
+                ]
+            }
+        ],
+        "תנאי": [
+            {
+                "full": "פסוקית תנאי",
+                "abbr": "פס' תנאי",
+                "fullRow": true,
+                "subItems": [
+                    { "full": "פסוקית תנאי קיים", "abbr": "פס' תנאי קיים" },
+                    { "full": "פסוקית תנאי בטל", "abbr": "פס' תנאי בטל" },
+                    { "full": "פסוקית תנאי מדומה", "abbr": "פס' תנאי מדומה" },
+                    { "full": "רישא", "abbr": "רישא" },
+                    { "full": "סיפא", "abbr": "סיפא" }
+                ]
+            }
+        ],
+        "אחר": [
+            { "full": "که פרדיקטיבי", "abbr": "که פרדיקטיבי", "halfRow": true },
+            { "full": "که בתור تا", "abbr": "که בתור تا", "halfRow": true },
+            { "full": "ביטוי מודאלי", "abbr": "ביטוי מודאלי", "halfRow": true },
+            { "full": "מילית שיעבוד", "abbr": "מילית שיעבוד", "halfRow": true },
+            { "full": "חלק ייחוד", "abbr": "חלק ייחוד", "fullRow": true },
+            { "full": "1", "abbr": "1", "quarterRow": true },
+            { "full": "2", "abbr": "2", "quarterRow": true },
+            { "full": "3", "abbr": "3", "quarterRow": true },
+            { "full": "4", "abbr": "4", "quarterRow": true }
+        ]
+    }
+}

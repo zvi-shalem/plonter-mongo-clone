@@ -1,0 +1,182 @@
+{
+  "description": "Complete syntactic roles for Arabic grammar - organized by category. Each entry has fullName and abbreviation.",
+  "categories": {
+    "נושא_נשוא": [
+      {"full": "נושא", "abbr": "נו'", "halfRow": true, "subItems": [
+        {"full": "נושא-א'", "abbr": "נו'-א'"},
+        {"full": "נושא-ב'", "abbr": "נו'-ב'"},
+        {"full": "נושא-ג'", "abbr": "נו'-ג'"},
+        {"full": "פועל עזר+נושא-ב'", "abbr": "פ\"ע+נו'-ב'", "afterGeneral": true}
+      ]},
+      {"full": "נשוא", "abbr": "נש'", "halfRow": true, "subItems": [
+        {"full": "נשוא-א'", "abbr": "נש'-א'"},
+        {"full": "נשוא-ב'", "abbr": "נש'-ב'"},
+        {"full": "נשוא-ג'", "abbr": "נש'-ג'"},
+        {"full": "נש' + א' ועוד משהו...", "abbr": "נש'+...", "isGroup": true, "subItems": [
+          {"full": "נשוא+נושא-א'", "abbr": "נש'+נו'-א'"},
+          {"full": "נשוא+נושא-א'+מושא ישיר", "abbr": "נש'+נו'-א'+מ\"י"},
+          {"full": "נשוא-א'+מושא ישיר", "abbr": "נש'-א'+מ\"י"},
+          {"full": "נשוא+נושא-א'+מושא ישיר 1", "abbr": "נש'+נו'-א'+מ\"י 1"},
+          {"full": "נשוא-א'+מושא ישיר 1", "abbr": "נש'-א'+מ\"י 1"},
+          {"full": "נשוא+נושא א' סתמי", "abbr": "נש'+נו'-א' סתמי"}
+        ]}
+      ]},
+      {"full": "אוגד", "abbr": "אוגד", "fullRow": true}
+    ],
+    "רכיבים ישירים": [
+      {"full": "גרעין", "abbr": "ג'", "fullRow": true, "belowLine": true},
+      {"full": "לוואי סומך", "abbr": "ל\"ס", "quarterRow": true, "directSelect": true, "subItems": [
+        {"full": "לוואי סומך", "abbr": "ל\"ס"},
+        {"full": "לוואי סומך נושאי", "abbr": "ל\"ס נושאי"},
+        {"full": "לוואי סומך מושאי", "abbr": "ל\"ס מושאי"}
+      ]},
+      {"full": "לוואי שם תואר", "abbr": "לש\"ת", "quarterRow": true},
+      {"full": "לוואי צירוף יחס", "abbr": "לצ\"י", "quarterRow": true},
+      {"full": "לוואי כינוי רמז", "abbr": "לכ\"ר", "quarterRow": true},
+      {"full": "לוואי תמורה", "abbr": "ל\"ת", "thirdRow": true},
+      {"full": "اختصاص", "abbr": "اختصاص", "thirdRow": true},
+      {"full": "לוואי שם עצם", "abbr": "לש\"ע", "thirdRow": true},
+      {"full": "לוואי", "abbr": "ל'", "fullRow": true, "menuLabel": "לוואי כללי", "menuLabelAbbr": "ל' כללי"}
+    ],
+    "מושא": [
+      {"full": "מושא ישיר", "abbr": "מ\"י", "halfRow": true, "subItems": [
+        {"full": "מושא ישיר", "abbr": "מ\"י", "menuLabel": "מושא ישיר (רגיל)", "menuLabelAbbr": "מ\"י (רגיל)"},
+        {"full": "מושא ישיר 1", "abbr": "מ\"י 1"},
+        {"full": "מושא ישיר 2", "abbr": "מ\"י 2"}
+      ]},
+      {"full": "מושא עקיף", "abbr": "מ\"ע", "halfRow": true, "subItems": [
+        {"full": "מושא עקיף", "abbr": "מ\"ע", "menuLabel": "מושא עקיף (רגיל)", "menuLabelAbbr": "מ\"ע (רגיל)"},
+        {"full": "מושא עקיף 1", "abbr": "מ\"ע 1"},
+        {"full": "מושא עקיף 2", "abbr": "מ\"ע 2"}
+      ]},
+      {"full": "מושא", "abbr": "מו'", "fullRow": true, "menuLabel": "מושא כללי", "menuLabelAbbr": "מו' כללי"}
+    ],
+    "תיאור": [
+      {"full": "תיאור", "abbr": "ת'", "fullRow": true, "menuLabel": "תיאור כללי", "menuLabelAbbr": "ת' כללי"},
+      {"full": "מפעול מטלק", "abbr": "م.م", "halfRow": true},
+      {"full": "תמייז", "abbr": "תמייז", "halfRow": true},
+      {"full": "תיאור מצב", "abbr": "ת' מצב", "halfRow": true},
+      {"full": "תיאור ויתור", "abbr": "ת' ויתור", "halfRow": true},
+      {"full": "نعت سببي", "abbr": "نعت سببي", "thirdRow": true},
+      {"full": "תיאור המשפט", "abbr": "ת' המשפט", "thirdRow": true},
+      {"full": "תיאור אופן", "abbr": "ת' אופן", "thirdRow": true, "belowLine": true},
+      {"full": "תיאור זמן", "abbr": "ת' זמן", "halfRow": true},
+      {"full": "תיאור מקום", "abbr": "ת' מקום", "halfRow": true},
+      {"full": "תיאור סיבה", "abbr": "ת' סיבה", "halfRow": true},
+      {"full": "תיאור תכלית", "abbr": "ת' תכלית", "halfRow": true}
+    ],
+    "פסוקית": [
+      {"full": "صفة", "abbr": "صفة", "halfRow": true},
+      {"full": "صلة", "abbr": "صلة", "halfRow": true},
+      {"full": "פסוקית נושא", "abbr": "פס' נו'", "halfRow": true, "subItems": [
+        {"full": "פסוקית נושא-א'", "abbr": "פס' נו'-א'"},
+        {"full": "פסוקית נושא-ב'", "abbr": "פס' נו'-ב'"},
+        {"full": "פסוקית נושא-ג'", "abbr": "פס' נו'-ג'"}
+      ]},
+      {"full": "פסוקית נשוא-ב'", "abbr": "פס' נש'-ב'", "halfRow": true},
+      {"full": "פסוקית מושא ישיר", "abbr": "פס' מ\"י", "halfRow": true, "subItems": [
+        {"full": "פסוקית מושא ישיר", "abbr": "פס' מ\"י", "menuLabel": "פס' מ\"י (רגיל)", "menuLabelAbbr": "פס' מ\"י (רגיל)"},
+        {"full": "פסוקית מושא ישיר 2", "abbr": "פס' מ\"י 2"},
+        {"full": "פסוקית מושא", "abbr": "פס' מושא", "afterGeneral": true, "menuLabel": "מושא כללי", "menuLabelAbbr": "מו' כללי"}
+      ]},
+      {"full": "פסוקית מושא עקיף", "abbr": "פס' מ\"ע", "halfRow": true, "subItems": [
+        {"full": "פסוקית מושא עקיף", "abbr": "פס' מ\"ע", "menuLabel": "פס' מ\"ע (רגיל)", "menuLabelAbbr": "פס' מ\"ע (רגיל)"},
+        {"full": "פסוקית מושא עקיף 1", "abbr": "פס' מ\"ע 1"},
+        {"full": "פסוקית מושא עקיף 2", "abbr": "פס' מ\"ע 2"},
+        {"full": "פסוקית מושא עקיף נטולת מילת יחס", "abbr": "פס' מ\"ע נטולת מילת יחס"},
+        {"full": "פסוקית מושא", "abbr": "פס' מושא", "afterGeneral": true, "menuLabel": "מושא כללי", "menuLabelAbbr": "מו' כללי"}
+      ]},
+      {"full": "פסוקית לוואי סומך", "abbr": "פס' ל\"ס", "fullRow": true, "belowLine": true},
+      {"full": "פסוקית תיאור מצב", "abbr": "פס' ת.מצב", "fullRow": true, "belowLine": true},
+      {"full": "פסוקית תיאור מקום", "abbr": "פס' ת.מקום", "halfRow": true},
+      {"full": "פסוקית תיאור זמן", "abbr": "פס' ת.זמן", "halfRow": true},
+      {"full": "פסוקית תיאור סיבה", "abbr": "פס' ת.סיבה", "halfRow": true},
+      {"full": "פסוקית תיאור תכלית", "abbr": "פס' ת.תכלית", "halfRow": true},
+      {"full": "פסוקית תיאור ויתור", "abbr": "פס' ת.ויתור", "halfRow": true},
+      {"full": "פסוקית תנאי", "abbr": "פס' תנאי", "halfRow": true},
+      {"full": "פסוקית תיאור", "abbr": "פס' ת'", "fullRow": true, "menuLabel": "פסוקית תיאור", "menuLabelAbbr": "פס' ת'", "generalStyle": true, "belowLine": true},
+      {"full": "פסוקית עיקרית", "abbr": "פס' עיקרית", "fullRow": true, "belowLine": true},
+      {"full": "פסוקית לוואי", "abbr": "פס' לוואי", "thirdRow": true},
+      {"full": "פסוקית זיקה", "abbr": "פס' זיקה", "thirdRow": true},
+      {"full": "פסוקית זיקה תארית", "abbr": "פסוקית זיקה תארית", "thirdRow": true}
+    ],
+    "פסוקית_זיקה_מועצמת": [
+      {"full": "פז\"ע נושא", "abbr": "פז\"ע נו'", "halfRow": true, "subItems": [
+        {"full": "פז\"ע נושא-א'", "abbr": "פז\"ע נו'-א'"},
+        {"full": "פז\"ע נושא-ב'", "abbr": "פז\"ע נו'-ב'"},
+        {"full": "פז\"ע נושא-ג'", "abbr": "פז\"ע נו'-ג'"}
+      ]},
+      {"full": "פז\"ע נשוא-ב'", "abbr": "פז\"ע נש'-ב'", "halfRow": true},
+      {"full": "פז\"ע מושא ישיר", "abbr": "פז\"ע מ\"י", "halfRow": true, "subItems": [
+        {"full": "פז\"ע מושא ישיר", "abbr": "פז\"ע מ\"י", "menuLabel": "פז\"ע מ\"י (רגיל)", "menuLabelAbbr": "פז\"ע מ\"י (רגיל)"},
+        {"full": "פז\"ע מושא ישיר 1", "abbr": "פז\"ע מ\"י 1"},
+        {"full": "פז\"ע מושא ישיר 2", "abbr": "פז\"ע מ\"י 2"},
+        {"full": "פז\"ע מושא", "abbr": "פז\"ע מו'", "afterGeneral": true, "menuLabel": "פז\"ע מושא כללי", "menuLabelAbbr": "פז\"ע מו' כללי"}
+      ]},
+      {"full": "פז\"ע מושא עקיף", "abbr": "פז\"ע מ\"ע", "halfRow": true, "subItems": [
+        {"full": "פז\"ע מושא עקיף", "abbr": "פז\"ע מ\"ע", "menuLabel": "פז\"ע מ\"ע (רגיל)", "menuLabelAbbr": "פז\"ע מ\"ע (רגיל)"},
+        {"full": "פז\"ע מושא עקיף 1", "abbr": "פז\"ע מ\"ע 1"},
+        {"full": "פז\"ע מושא עקיף 2", "abbr": "פז\"ע מ\"ע 2"},
+        {"full": "פז\"ע מושא", "abbr": "פז\"ע מו'", "afterGeneral": true, "menuLabel": "פז\"ע מושא כללי", "menuLabelAbbr": "פז\"ע מו' כללי"}
+      ]},
+      {"full": "פז\"ע לוואי סומך", "abbr": "פז\"ע ל\"ס", "fullRow": true}
+    ],
+    "חסרות": [
+      {"full": "פסוקית זיקה חסרת נושא", "abbr": "פס' זיקה חסרת נושא", "fullRow": true},
+      {"full": "פז\"ע נושא חסרה", "abbr": "פז\"ע נו' חסרה", "halfRow": true, "subItems": [
+        {"full": "פז\"ע נושא-א' חסרה", "abbr": "פז\"ע נו'-א' חסרה"},
+        {"full": "פז\"ע נושא-ב' חסרה", "abbr": "פז\"ע נו'-ב' חסרה"},
+        {"full": "פז\"ע נושא-ג' חסרה", "abbr": "פז\"ע נו'-ג' חסרה"}
+      ]},
+      {"full": "פז\"ע נשוא-ב' חסרה", "abbr": "פז\"ע נש'-ב' חסרה", "halfRow": true},
+      {"full": "פז\"ע ל\"ס חסרה", "abbr": "פז\"ע ל\"ס חסרה", "fullRow": true},
+      {"full": "פסוקית תנאי חסרה", "abbr": "פס' תנאי חסרה", "halfRow": true, "belowLine": true},
+      {"full": "רישא חסרה", "abbr": "רישא חסרה", "thirdRow": true},
+      {"full": "פסוקית ויתור חסרה", "abbr": "פס' ויתור חסרה", "thirdRow": true},
+      {"full": "صلة חסרת נושא", "abbr": "صلة חסרת נושא", "thirdRow": true}
+    ],
+    "מיוחדים": [
+      {"full": "רישא", "abbr": "רישא", "halfRow": true},
+      {"full": "סיפא", "abbr": "סיפא", "halfRow": true},
+      {"full": "פועל עזר", "abbr": "פ\"ע", "fullRow": true, "subItems": [
+        {"full": "פועל עזר", "abbr": "פ\"ע"},
+        {"full": "פועל עזר+נושא-ב'", "abbr": "פ\"ע+נו'-ב'"}
+      ]},
+      {"full": "ضمير الشأن", "abbr": "ض.ش", "thirdRow": true},
+      {"full": "من البيان", "abbr": "من البيان", "thirdRow": true},
+      {"full": "المفعول معه", "abbr": "المفعول معه", "thirdRow": true},
+      {"full": "משלים מקודם", "abbr": "משלים", "thirdRow": true},
+      {"full": "משלים מקומי מוצרך", "abbr": "מ.מ.מ", "thirdRow": true},
+      {"full": "משלים למילת יחס", "abbr": "משלים למילת יחס", "thirdRow": true, "belowLine": true},
+      {"full": "מצריך מ\"ע", "abbr": "מצ' מ\"ע", "fullRow": true},
+      {"full": "כינוי סתמי", "abbr": "כ\"ס", "fullRow": true}
+    ],
+    "מספרים": [
+      {"full": "כולל/ת", "abbr": "כולל/ת", "fullRow": true},
+      {"full": "1", "abbr": "1", "fifthRow": true},
+      {"full": "2", "abbr": "2", "fifthRow": true},
+      {"full": "3", "abbr": "3", "fifthRow": true},
+      {"full": "4", "abbr": "4", "fifthRow": true},
+      {"full": "5", "abbr": "5", "fifthRow": true},
+      {"full": "6", "abbr": "6", "fifthRow": true},
+      {"full": "7", "abbr": "7", "fifthRow": true},
+      {"full": "8", "abbr": "8", "fifthRow": true},
+      {"full": "9", "abbr": "9", "fifthRow": true},
+      {"full": "10", "abbr": "10", "fifthRow": true}
+    ],
+    "אחר": [
+      {"full": "משפט ברירה", "abbr": "משפט ברירה", "halfRow": true},
+      {"full": "מבנה ברירה", "abbr": "מבנה ברירה", "halfRow": true},
+      {"full": "زائدة", "abbr": "زائدة", "halfRow": true},
+      {"full": "איחוי א-סידנטי", "abbr": "איחוי א-סידנטי", "halfRow": true},
+      {"full": "התפעלות", "abbr": "התפעלות", "thirdRow": true},
+      {"full": "פנייה", "abbr": "פנייה", "thirdRow": true},
+      {"full": "קריאה", "abbr": "קריאה", "thirdRow": true},
+      {"full": "המוצא מן הכלל", "abbr": "המוצא מן הכלל", "fullRow": true}
+    ],
+    "נתון_חידוש": [
+      {"full": "נתון", "abbr": "נתון", "halfRow": true},
+      {"full": "חידוש", "abbr": "חידוש", "halfRow": true}
+    ]
+  }
+}
