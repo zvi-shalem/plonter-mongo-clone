@@ -1,0 +1,2792 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<script>
+/* === Clone API guard (2026-05-28) ===
+   This page is a CLONE deployed under the SAME ORIGIN as the live /plonter/
+   site, so it SHARES localStorage (incl. plonter_vocab_v2 and
+   plonter_auth_token). It must NEVER hit /plonter/clone/api/ (the clone's
+   api/ has empty DBs) — a failed/guest auth there can wipe the real user's
+   vocab. App code already targets the absolute /plonter/api/; this is a
+   belt-and-braces net that re-routes any stray same-origin api/ call to the
+   LIVE backend. No-op for calls already under /plonter/api/. */
+(function () {
+    var LIVE = '/plonter/api/';
+    function fix(u) {
+        try {
+            if (typeof u !== 'string' || !u) return u;
+            var abs = new URL(u, document.baseURI);
+            if (abs.origin !== location.origin) return u;             // cross-origin: leave
+            if (abs.pathname.indexOf('/plonter/api/') === 0) return u; // already live: leave
+            var m = abs.pathname.match(/\/api\/(.*)$/);
+            if (!m) return u;                                          // not an api call
+            return LIVE + m[1] + abs.search + abs.hash;
+        } catch (e) { return u; }
+    }
+    if (window.fetch) {
+        var _f = window.fetch;
+        window.fetch = function (input, init) {
+            if (typeof input === 'string') return _f.call(this, fix(input), init);
+            return _f.call(this, input, init);
+        };
+    }
+    var _o = XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.open = function (method, url) {
+        try { arguments[1] = fix(url); } catch (e) {}
+        return _o.apply(this, arguments);
+    };
+})();
+</script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>הקלטה משותפת — פלונטר</title>
+<link rel="icon" type="image/png" href="plonter-logo.png?v=9">
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: 'Heebo', sans-serif; background: #f8fafc; color: #1f2937; padding: 16px; }
+  .wrap { max-width: 680px; margin: 0 auto; }
+  header { background: linear-gradient(135deg,#0d9488,#059669); color: white; padding: 18px 20px; border-radius: 14px; margin-bottom: 18px; box-shadow: 0 2px 10px rgba(13,148,136,0.3); }
+  header h1 { margin: 0 0 6px; font-size: 1.3em; }
+  header .meta { font-size: 0.9em; opacity: 0.9; }
+  .card { background: white; border-radius: 12px; padding: 16px; margin-bottom: 12px; box-shadow: 0 1px 4px rgba(0,0,0,0.05); }
+  /* Pin the recording-progress card to the top of the viewport so the
+     percentage stays visible while scrolling down through the word list
+     (Amitai 2026-04-25 02:01 "תמיד יישאר בלמעלה של העמוד גם כשגוללים..."). */
+  #progress-card {
+    position: sticky; top: 0; z-index: 90;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+  }
+  .error-box { background: #fee2e2; color: #991b1b; border-radius: 12px; padding: 20px; text-align: center; font-weight: bold; }
+  .name-gate { text-align: center; padding: 28px 20px; }
+  .name-gate label { display: block; margin-bottom: 12px; font-weight: bold; }
+  .name-gate input { width: 100%; max-width: 320px; padding: 12px 14px; font-size: 1em; border: 2px solid #e5e7eb; border-radius: 10px; font-family: inherit; text-align: center; }
+  .name-gate input:focus { border-color: #0d9488; outline: none; }
+  .btn-primary { margin-top: 14px; padding: 12px 28px; font-size: 1em; font-weight: bold; background: #0d9488; color: white; border: none; border-radius: 10px; cursor: pointer; }
+  .btn-primary:hover { background: #0f766e; }
+  .btn-primary:disabled { background: #9ca3af; cursor: not-allowed; }
+  .word-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 14px; background: white; border-radius: 12px;
+    margin-bottom: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+    position: relative;
+    transition: background 0.18s, box-shadow 0.18s;
+    /* Amitai 2026-05-10: prevent rec-btn overflow on narrow phones — wrap if total content exceeds viewport. */
+    flex-wrap: wrap;
+  }
+  /* Amitai 2026-05-10: pin audio cluster (play / recording-owner / rec) to visual-LEFT (RTL inline-end)
+     even after wrap, so the mic is always in the same place. */
+  .word-row > .play-btn,
+  .word-row > .rec-btn { margin-inline-start: auto; }
+  .word-row > .play-btn ~ .recording-owner,
+  .word-row > .play-btn ~ .rec-btn { margin-inline-start: 0; }
+  /* Whole-row red tint during active recording; tap anywhere on the row ends it. */
+  .word-row.row-recording {
+    background: #fef2f2;
+    box-shadow: 0 0 0 2px #dc2626, 0 4px 12px rgba(220,38,38,0.22);
+    animation: pulse 1.4s ease-in-out infinite;
+  }
+  .word-num { color: #9ca3af; font-size: 0.85em; min-width: 28px; text-align: center; }
+  .word-ar { font-family: 'Times New Roman', serif; font-size: 1.35em; font-weight: bold; color: #0d9488; min-width: 70px; }
+  .word-form { font-family: 'Times New Roman', serif; font-size: 0.9em; color: #6b7280; min-width: 50px; }
+  /* Secondary-language echo beside the primary word (Amitai 2026-04-25 22:43). */
+  .word-secondary { font-size: 0.78em; color: #9ca3af; font-weight: normal; margin-inline-start: 4px; direction: rtl; }
+  .word-he { flex: 1; font-weight: 600; } /* legacy — no longer rendered after 16:45 single-lang simplification */
+  .rec-btn {
+    width: 42px; height: 38px; border-radius: 19px; border: 1.5px solid #fca5a5;
+    background: #fef2f2; color: #dc2626; cursor: pointer; font-size: 1em;
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.15s, width 0.25s, height 0.25s, font-size 0.25s, border-width 0.25s;
+  }
+  /* Enlarged rec-btn while the "הקלט שוב" nudge is active so it's an obvious
+     tap target for teachers (Amitai 2026-04-25 02:00 "המיקרופון ממש גדל
+     פיזית ברדיוס, בלי אנימציה של קפיצה אבל שיגדל משמעותית"). No bounce. */
+  .rec-btn.rerec-emphasize {
+    width: 52px; height: 46px; font-size: 1.22em;
+    border-width: 2px;
+  }
+  .rec-btn:hover { background: #dc2626; color: white; border-color: #dc2626; }
+  .rec-btn.recording { background: #dc2626; color: white; border-color: #dc2626; animation: pulse 1s ease-in-out infinite; }
+  .rec-btn.done { background: #d1fae5; color: #065f46; border-color: #34d399; }
+  .rec-btn.partial-he { background: #fef3c7; color: #92400e; border-color: #f59e0b; }
+  .rec-btn.partial-he:hover { background: #f59e0b; color: white; border-color: #d97706; }
+  #app-return-link { transition: width 0.28s ease, height 0.28s ease, padding 0.28s ease, border-radius 0.28s ease, font-size 0.18s ease, transform 0.28s cubic-bezier(.2,.8,.2,1), box-shadow 0.28s ease; }
+  #app-return-link.return-compact {
+    width: 46px !important; height: 46px !important; padding: 0 !important;
+    border-radius: 50% !important; font-size: 0 !important; overflow: hidden;
+    transform: translateY(-1px) rotate(-3deg); display: inline-flex !important;
+    align-items: center; justify-content: center;
+  }
+  #app-return-link.return-compact::before {
+    content: '↩'; font-size: 1.35rem; line-height: 1; transform: rotate(3deg);
+  }
+  .play-btn {
+    width: 38px; height: 38px; border-radius: 19px; border: 1.5px solid #93c5fd;
+    background: #eff6ff; color: #2563eb; cursor: pointer; font-size: 0.95em;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .play-btn:hover { background: #2563eb; color: white; border-color: #2563eb; }
+  .player-panel {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px; margin: 2px 0 10px;
+    background: #eff6ff; border: 1.5px solid #2563eb; border-radius: 10px;
+  }
+  .player-panel .pp-btn {
+    background: #fff; border: 1.5px solid #2563eb; color: #2563eb;
+    width: 36px; height: 36px; border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 1em; cursor: pointer;
+  }
+  .player-panel .pp-btn:hover { background: #2563eb; color: #fff; }
+  .player-panel .pp-time { font-family: monospace; font-size: 0.9em; color: #2563eb; min-width: 42px; text-align: center; }
+  .player-panel .pp-seek {
+    flex: 1; height: 6px; -webkit-appearance: none; appearance: none;
+    background: #cbd5e1; border-radius: 3px; cursor: pointer; outline: none;
+  }
+  .player-panel .pp-seek::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 16px; height: 16px; border-radius: 50%;
+    background: #2563eb; cursor: pointer; border: 2px solid #fff;
+  }
+  @keyframes pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(220,38,38,0.5); } 50% { box-shadow: 0 0 0 8px rgba(220,38,38,0); } }
+  @keyframes wordBounce {
+    0%, 100% { transform: translateY(0); }
+    20% { transform: translateY(-6px); }
+    40% { transform: translateY(3px); }
+    60% { transform: translateY(-3px); }
+    80% { transform: translateY(1px); }
+  }
+  .word-row.highlight-next {
+    animation: wordBounce 0.9s ease-in-out infinite;
+    box-shadow: 0 0 0 3px #fbbf24, 0 2px 8px rgba(251,191,36,0.4);
+    background: #fffbeb;
+  }
+  .word-row.seq-current {
+    box-shadow: 0 0 0 3px #2563eb, 0 4px 14px rgba(37,99,235,0.35);
+    background: #eff6ff;
+    transition: background 0.3s, box-shadow 0.3s;
+  }
+  /* Last-touched row hint — shows where the user just was (record/play).
+     Subtle so it doesn't fight with .seq-current / .highlight-next. */
+  .word-row.last-touched {
+    outline: 2px dashed #0d9488;
+    outline-offset: 2px;
+    border-radius: 8px;
+  }
+  /* Floating arrow that jumps to the FIRST (top-most) unrecorded word.
+     Appears at the top when scrolling up is needed, at the bottom when
+     scrolling down is needed. Lowered top offset so it clears the play-buttons
+     toolbar on mobile (Amitai 2026-04-26 07:24 photo: arrow was covering
+     the top panel). Bounces gently to attract attention. */
+  @keyframes jumpBtnBounce {
+    0%, 100% { transform: translate(-50%, 0); }
+    50% { transform: translate(-50%, -7px); }
+  }
+  #jump-to-next-unrec-btn {
+    position: fixed;
+    left: 50%;
+    transform: translate(-50%, 0);
+    background: linear-gradient(135deg, #0d9488, #0891b2);
+    color: white;
+    border: none;
+    border-radius: 999px;
+    padding: 10px 18px;
+    font-size: 1em;
+    font-weight: bold;
+    cursor: pointer;
+    box-shadow: 0 6px 18px rgba(13,148,136,0.45);
+    z-index: 8000;
+    display: none;
+    direction: rtl;
+    animation: jumpBtnBounce 1.6s ease-in-out infinite;
+  }
+  #jump-to-next-unrec-btn:hover { filter: brightness(1.05); }
+  /* Bottom-of-list "switch language" affordance (Amitai 2026-04-26 07:27).
+     Shown after the last word so a teacher who scrolled all the way down
+     can flip to the other language without scrolling back up. */
+  .swap-lang-footer {
+    margin-top: 14px; padding: 14px;
+    background: linear-gradient(135deg,#f0fdfa,#ecfeff);
+    border: 2px dashed #0d9488; border-radius: 12px;
+    text-align: center;
+  }
+  .swap-lang-footer button {
+    padding: 12px 22px; background: linear-gradient(135deg,#0d9488,#0891b2);
+    color: white; border: none; border-radius: 10px; font-weight: bold;
+    font-size: 0.98em; font-family: inherit; cursor: pointer;
+    box-shadow: 0 3px 10px rgba(13,148,136,0.3);
+  }
+  .swap-lang-footer .swap-lang-hint {
+    display: block; font-size: 0.82em; color: #0f766e;
+    margin-bottom: 8px; font-weight: 600;
+  }
+  .ttl-warn-card {
+    background: #fef3c7; color: #92400e; border: 1.5px solid #f59e0b;
+    border-radius: 10px; padding: 10px 14px; margin-bottom: 10px;
+    font-size: 0.92em; text-align: center; font-weight: 600;
+  }
+  .ttl-warn-card.critical { background: #fee2e2; color: #991b1b; border-color: #dc2626; }
+  /* Top toolbar buttons. Play-from-current doubles as start AND stop for
+     sequence playback (Amitai 2026-04-26 07:21+07:22 removed the separate
+     "השמע הכל ברצף" button). Speed control sits beside it so users control
+     speed for both single-play and sequence-play modes. */
+  #play-from-current-btn, #seq-speed-btn-top {
+    display: inline-flex; align-items: center; justify-content: center;
+    margin-top: 8px; padding: 9px 18px;
+    border: none; border-radius: 10px; font-weight: bold; font-size: 0.92em;
+    font-family: inherit; cursor: pointer;
+  }
+  #play-from-current-btn {
+    background: linear-gradient(135deg,#0d9488,#14b8a6); color: white;
+    box-shadow: 0 3px 10px rgba(13,148,136,0.28);
+  }
+  #play-from-current-btn.is-stop {
+    /* Red theme while a sequence is playing — same button doubles as the
+       stop control (Amitai 2026-04-26 07:21). */
+    background: linear-gradient(135deg,#dc2626,#b91c1c);
+    box-shadow: 0 3px 12px rgba(220,38,38,0.4);
+    animation: pulse 1.2s ease-in-out infinite;
+  }
+  #play-from-current-btn:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: none; }
+  #seq-speed-btn-top {
+    background: #1f2937; color: white; border: 2px solid #fbbf24;
+    padding: 7px 14px; min-width: 56px;
+    box-shadow: 0 3px 10px rgba(251,191,36,0.35);
+  }
+  #seq-speed-btn-top:hover { background: #111827; }
+  /* During active recording: only the non-active rows are dimmed + locked;
+     the row being recorded stays fully interactive (Amitai 2026-04-25 00:21
+     "רק שאר המילים קצת שקופות וחסומות — המילה שאני מקליט נשארת חיה"). */
+  body.recording .word-row:not(.row-recording) {
+    opacity: 0.55;
+    pointer-events: none;
+  }
+  .lang-tabs {
+    display: flex; gap: 8px; margin-bottom: 12px;
+    background: #e5e7eb; border-radius: 14px; padding: 5px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+  }
+  .lang-tab {
+    flex: 1; padding: 12px 14px; border: 2px solid transparent; border-radius: 10px;
+    background: #f9fafb; color: #9ca3af; cursor: pointer;
+    font-family: inherit; font-size: 1em; font-weight: 700;
+    transition: background 0.15s, color 0.15s, transform 0.18s, box-shadow 0.15s;
+  }
+  .lang-tab:hover { background: #f3f4f6; color: #6b7280; }
+  .lang-tab.active {
+    background: linear-gradient(135deg,#0d9488,#0891b2);
+    color: white; font-weight: 800; font-size: 1.08em;
+    border-color: #134e4a;
+    box-shadow: 0 6px 16px rgba(13,148,136,0.45), inset 0 -3px 0 rgba(0,0,0,0.18);
+    transform: scale(1.02);
+  }
+  .lang-tab.active::after {
+    content: '●'; margin-inline-start: 6px; font-size: 0.6em; vertical-align: middle;
+  }
+  .lang-tab .lang-tab-hint { font-size: 0.72em; font-weight: 500; opacity: 0.9; margin-inline-start: 4px; }
+  .has-recording-badge {
+    position: absolute; top: -6px; right: -6px; width: 18px; height: 18px;
+    border-radius: 50%; background: #3b82f6; color: white; font-size: 10px;
+    display: flex; align-items: center; justify-content: center;
+    border: 2px solid white;
+  }
+  /* Amitai 2026-05-10: compact pill — show '🎙 <name>' (not full 'הוקלט ע״י <name>') so the row fits on one line on a phone. Full text is in the title attr / tooltip. */
+  .recording-owner {
+    font-size: 0.72em; color: #64748b; background: #f8fafc;
+    border: 1px solid #e2e8f0; border-radius: 999px;
+    padding: 2px 8px; white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .panel {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px; margin: 2px 0 10px;
+    background: #f0fdfa; border: 1.5px solid #0d9488; border-radius: 10px;
+  }
+  /* Red override while counting down (3-2-1-תקליט). Amitai 2026-04-24 17:06. */
+  .panel.recording.countdown {
+    background: #fef2f2; border-color: #dc2626;
+  }
+  .panel .ap-btn {
+    background: #fff; border: 1.5px solid #0d9488; color: #0d9488;
+    width: 36px; height: 36px; border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 1em; cursor: pointer;
+  }
+  .panel .ap-btn:hover { background: #0d9488; color: #fff; }
+  .panel.recording.countdown .ap-btn { border-color: #dc2626; color: #dc2626; }
+  .panel.recording.countdown .ap-btn:hover { background: #dc2626; color: #fff; }
+  .panel .ap-btn.warn { border-color: #f59e0b; color: #92400e; }
+  .panel .ap-time { font-family: monospace; font-size: 0.95em; color: #0d9488; min-width: 44px; text-align: center; animation: pulse 1s ease-in-out infinite; }
+  .panel.recording.countdown .ap-time { color: #dc2626; }
+  .panel .ap-time.cd-text {
+    font-family: inherit; font-size: 1.35em; font-weight: 800;
+    color: #dc2626; min-width: 120px; letter-spacing: 0.05em;
+    animation: pulse 0.25s ease-in-out infinite;
+  }
+  /* Re-record nudge: fires on 2nd+ listen per word. Speech-bubble above the
+     mic button + a brief bounce of the button itself (Amitai 16:00). */
+  .rerec-nudge {
+    position: absolute; bottom: 100%; left: 8px;
+    margin-bottom: 6px; padding: 6px 12px; border-radius: 14px;
+    background: #0d9488; color: white; font-weight: 700; font-size: 0.85em;
+    /* Neutral shadow so the area below the bubble doesn't get a teal halo
+       that makes the arrow look like a different green (Amitai 2026-04-25
+       01:50 "החץ בצבע ירוק שונה מרקע הבועית"). */
+    box-shadow: 0 4px 12px rgba(0,0,0,0.18);
+    white-space: nowrap; z-index: 50;
+    opacity: 0; transform: translateY(4px);
+    transition: opacity 0.22s ease-out, transform 0.22s ease-out;
+    pointer-events: none;
+  }
+  .rerec-nudge::after {
+    /* Bigger arrow so it reads unambiguously as a pointer to the mic, not as
+       a stray spec of color (Amitai 2026-04-26 07:18: "החץ הקטן הירוק...
+       בירוק קצת אחר ולא מזהים שהוא חץ"). Same hex as bubble bg; no shadow
+       leak from the bubble's drop-shadow can wash it out at this size. */
+    content: ''; position: absolute; top: 100%; left: 12px;
+    border: 10px solid transparent; border-top-color: #0d9488;
+    border-top-width: 12px;
+  }
+  .rerec-nudge.show { opacity: 1; transform: translateY(0); }
+  /* Centered "סיים הקלטה" bubble above the active recording row — clickable
+     to stop (Amitai 2026-04-25 01:51). Stays visible the entire time
+     recording is active (Amitai 2026-04-25 01:52 "תופיע לאורך כל הזמן שבו
+     אני מקליט"). Red theme matches the row tint. No animation — earlier
+     pulse box-shadow cycle made the surrounding glow blink which read as
+     "the bubble disappears". */
+  .stop-rec-nudge {
+    position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%);
+    margin-bottom: 8px; padding: 8px 18px; border-radius: 16px;
+    background: #dc2626; color: white; font-weight: 700; font-size: 0.95em;
+    border: none; cursor: pointer; font-family: inherit;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+    white-space: nowrap; z-index: 60;
+    display: inline-block; opacity: 1; visibility: visible;
+  }
+  .stop-rec-nudge::after {
+    content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
+    border: 6px solid transparent; border-top-color: #dc2626;
+  }
+  .toast {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    background: #1f2937; color: white; padding: 12px 24px; border-radius: 24px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2); z-index: 100; font-weight: 500;
+    opacity: 0; transition: opacity 0.2s;
+  }
+  .toast.show { opacity: 1; }
+  .ttl-note { font-size: 0.85em; color: #6b7280; margin-top: 8px; text-align: center; }
+  /* Teacher encouragement bubbles — rainbow pill that pops up briefly after
+     each successful recording, with a tiny confetti burst. Amitai 2026-04-24
+     16:41: "עיגולי סטאלבט למורים בעברית... שירגישו מעודדים". */
+  .enc-bubble {
+    position: fixed; top: 20%; left: 50%; transform: translate(-50%, -20px) scale(0.6);
+    padding: 14px 28px; border-radius: 999px; color: white; font-weight: 800;
+    font-size: 1.3em; box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+    z-index: 110; opacity: 0; pointer-events: none;
+    transition: opacity 0.28s ease-out, transform 0.42s cubic-bezier(0.34, 1.56, 0.64, 1);
+    text-shadow: 0 1px 2px rgba(0,0,0,0.15);
+    direction: rtl;
+  }
+  .enc-bubble.show { opacity: 1; transform: translate(-50%, 0) scale(1); }
+  .enc-bubble.fade { opacity: 0; transform: translate(-50%, -10px) scale(0.9); }
+  .enc-confetti {
+    position: fixed; width: 10px; height: 10px; border-radius: 2px;
+    z-index: 109; pointer-events: none; top: 20%; left: 50%;
+    animation: enc-confetti-fly 1.1s ease-out forwards;
+  }
+  .grand-celebration {
+    position: fixed; inset: 0; z-index: 10004; pointer-events: none;
+    display: flex; align-items: center; justify-content: center;
+    background: radial-gradient(circle at center, rgba(15,118,110,0.24), rgba(15,23,42,0.18) 46%, rgba(15,23,42,0.02));
+    animation: grand-celebration-fade 3.4s ease-out forwards;
+    overflow: hidden;
+  }
+  .grand-celebration-title {
+    direction: rtl; text-align: center; color: white; font-weight: 900;
+    font-size: clamp(2rem, 8vw, 4.8rem); line-height: 1.1;
+    text-shadow: 0 4px 22px rgba(0,0,0,0.38);
+    transform: scale(0.68); opacity: 0;
+    animation: grand-title-pop 1.05s cubic-bezier(0.34, 1.56, 0.64, 1) 0.12s forwards;
+  }
+  .grand-celebration-sub {
+    margin-top: 12px; font-size: clamp(1rem, 3.5vw, 1.7rem);
+    color: #ecfeff; font-weight: 800;
+  }
+  .grand-confetti {
+    position: fixed; top: -20px; width: 11px; height: 18px; border-radius: 3px;
+    z-index: 10005; pointer-events: none;
+    animation: grand-confetti-fall var(--dur) linear forwards;
+  }
+  .grand-firework {
+    position: fixed; width: 10px; height: 10px; border-radius: 999px;
+    z-index: 10005; pointer-events: none; background: white;
+    box-shadow: 0 0 16px currentColor;
+    animation: grand-firework-pop 0.92s ease-out forwards;
+  }
+  @keyframes grand-title-pop {
+    0% { opacity: 0; transform: scale(0.68) rotate(-2deg); }
+    65% { opacity: 1; transform: scale(1.08) rotate(1deg); }
+    100% { opacity: 1; transform: scale(1) rotate(0deg); }
+  }
+  @keyframes grand-celebration-fade {
+    0%, 78% { opacity: 1; }
+    100% { opacity: 0; }
+  }
+  @keyframes grand-confetti-fall {
+    0% { opacity: 1; transform: translate3d(0, -30px, 0) rotate(0deg); }
+    100% { opacity: 0; transform: translate3d(var(--drift), 110vh, 0) rotate(var(--rot)); }
+  }
+  @keyframes grand-firework-pop {
+    0% { opacity: 1; transform: translate(-50%, -50%) scale(0.2); }
+    100% { opacity: 0; transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(1.35); }
+  }
+  @keyframes enc-confetti-fly {
+    0%   { opacity: 1; transform: translate(-50%, -50%) rotate(0deg) scale(1); }
+    100% { opacity: 0;
+           transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) rotate(var(--rot)) scale(0.7); }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div id="main"></div>
+  <div id="toast" class="toast"></div>
+</div>
+
+<script>
+(function() {
+  var qs = new URLSearchParams(location.search);
+  var TOKEN = qs.get('t') || qs.get('token') || '';
+  var TARGET_WORD = qs.get('word') || qs.get('target_word') || '';
+  var TARGET_IDX = qs.get('idx') || qs.get('target_idx') || '';
+  var TARGET_LANG = qs.get('lang') || '';
+  var URL_RECORDER_NAME = qs.get('name') || '';
+  var main = document.getElementById('main');
+  var toast = document.getElementById('toast');
+
+  function showToast(msg, ms) {
+    toast.textContent = msg;
+    toast.classList.add('show');
+    setTimeout(function() { toast.classList.remove('show'); }, ms || 2200);
+  }
+
+  // Random-color pill + confetti burst as a "כל הכבוד" to the teacher after
+  // each recording (Amitai 2026-04-24 16:41). Non-blocking: pointer-events off,
+  // auto-fades, stacks if multiple fire back-to-back.
+  var _ENC_PALETTE = [
+    '#0d9488', // teal
+    '#0891b2', // cyan
+    '#8b5cf6', // violet
+    '#ec4899', // pink
+    '#f59e0b', // amber
+    '#22c55e', // green
+    '#6366f1', // indigo
+    '#ef4444'  // red
+  ];
+  var _ENC_CONFETTI_COLORS = ['#fbbf24', '#f87171', '#34d399', '#60a5fa', '#c084fc', '#fb7185', '#a3e635'];
+  function _encPickColor() { return _ENC_PALETTE[Math.floor(Math.random() * _ENC_PALETTE.length)]; }
+  function _encSpawnConfetti(count) {
+    for (var i = 0; i < count; i++) {
+      var p = document.createElement('span');
+      p.className = 'enc-confetti';
+      var angle = Math.random() * 2 * Math.PI;
+      var dist  = 80 + Math.random() * 80;
+      p.style.setProperty('--dx', Math.cos(angle) * dist + 'px');
+      p.style.setProperty('--dy', Math.sin(angle) * dist + 'px');
+      p.style.setProperty('--rot', (Math.random() * 720 - 360) + 'deg');
+      p.style.background = _ENC_CONFETTI_COLORS[Math.floor(Math.random() * _ENC_CONFETTI_COLORS.length)];
+      p.style.animationDelay = (Math.random() * 0.1) + 's';
+      document.body.appendChild(p);
+      setTimeout((function(el) { return function() { if (el.parentNode) el.parentNode.removeChild(el); }; })(p), 1300);
+    }
+  }
+  function showEncouragement(msg) {
+    var b = document.createElement('div');
+    b.className = 'enc-bubble';
+    b.textContent = msg;
+    b.style.background = 'linear-gradient(135deg,' + _encPickColor() + ',' + _encPickColor() + ')';
+    document.body.appendChild(b);
+    _encSpawnConfetti(12);
+    requestAnimationFrame(function() {
+      requestAnimationFrame(function() { b.classList.add('show'); });
+    });
+    setTimeout(function() {
+      b.classList.remove('show');
+      b.classList.add('fade');
+      setTimeout(function() { if (b.parentNode) b.parentNode.removeChild(b); }, 400);
+    }, 1400);
+  }
+  var _ENC_PHRASES = [
+    'תודה!', 'אין עליך!', 'יופי!', 'כל הכבוד!', 'מעולה!',
+    'ממשיך חזק!', 'אלוף!', 'עבודה נהדרת!', 'וואו!', 'נשמע מצוין!',
+    'כבוד גדול!', 'פצצה!', 'קדימה!', 'אש!', 'מקצוענות טהורה!'
+  ];
+  var _ENC_USED = {};
+  // Cooldown counter: fire a random phrase every 2..5 uploads (Amitai
+  // 2026-04-25 00:30 "כל 2-5 מילים"). Milestones (25/50/75) bypass cooldown.
+  function _encRandomInterval() { return 2 + Math.floor(Math.random() * 4); } // 2..5
+  var _encCooldown = _encRandomInterval();
+  function _pickEncouragement(pct, done, total) {
+    // Milestones take priority at 25/50/75 (fire once each). These bypass cooldown.
+    if (pct >= 75 && !_ENC_USED.m75) { _ENC_USED.m75 = true; return 'כמעט שם — ' + pct + '%!'; }
+    if (pct >= 50 && !_ENC_USED.m50) { _ENC_USED.m50 = true; return 'חצי דרך! ' + pct + '%'; }
+    if (pct >= 25 && !_ENC_USED.m25) { _ENC_USED.m25 = true; return pct + '% שם!'; }
+    // First recording — always "תודה".
+    if (done === 1) { _encCooldown = _encRandomInterval(); return 'תודה!'; }
+    // Decrement and check: only fire when cooldown hits 0, then reset.
+    _encCooldown--;
+    if (_encCooldown > 0) return null;
+    _encCooldown = _encRandomInterval();
+    var pool = _ENC_PHRASES.filter(function(p) { return p !== _ENC_USED._last; });
+    var pick = pool[Math.floor(Math.random() * pool.length)];
+    _ENC_USED._last = pick;
+    return pick;
+  }
+
+  var _grandCelebrationActive = false;
+  function _spawnGrandFirework(cx, cy, pieces) {
+    for (var i = 0; i < pieces; i++) {
+      var s = document.createElement('span');
+      s.className = 'grand-firework';
+      var a = (Math.PI * 2 * i / pieces) + (Math.random() * 0.22);
+      var d = 58 + Math.random() * 130;
+      var color = _ENC_CONFETTI_COLORS[Math.floor(Math.random() * _ENC_CONFETTI_COLORS.length)];
+      s.style.left = cx + 'px';
+      s.style.top = cy + 'px';
+      s.style.color = color;
+      s.style.background = color;
+      s.style.setProperty('--dx', Math.cos(a) * d + 'px');
+      s.style.setProperty('--dy', Math.sin(a) * d + 'px');
+      document.body.appendChild(s);
+      setTimeout((function(el) { return function() { if (el.parentNode) el.parentNode.removeChild(el); }; })(s), 1100);
+    }
+  }
+  function _showGrandArabicCelebration(onDone) {
+    if (_grandCelebrationActive) { if (onDone) onDone(); return; }
+    _grandCelebrationActive = true;
+    var overlay = document.createElement('div');
+    overlay.className = 'grand-celebration';
+    overlay.innerHTML = '<div class="grand-celebration-title">פיצוץ! 🎉<div class="grand-celebration-sub">כל הערבית הוקלטה</div></div>';
+    document.body.appendChild(overlay);
+    for (var i = 0; i < 150; i++) {
+      var c = document.createElement('span');
+      c.className = 'grand-confetti';
+      c.style.left = Math.random() * 100 + 'vw';
+      c.style.background = _ENC_CONFETTI_COLORS[Math.floor(Math.random() * _ENC_CONFETTI_COLORS.length)];
+      c.style.setProperty('--dur', (2.0 + Math.random() * 1.8) + 's');
+      c.style.setProperty('--drift', ((Math.random() * 260) - 130) + 'px');
+      c.style.setProperty('--rot', ((Math.random() * 980) - 490) + 'deg');
+      c.style.animationDelay = (Math.random() * 0.7) + 's';
+      document.body.appendChild(c);
+      setTimeout((function(el) { return function() { if (el.parentNode) el.parentNode.removeChild(el); }; })(c), 4400);
+    }
+    var fw = setInterval(function() {
+      _spawnGrandFirework(60 + Math.random() * (window.innerWidth - 120), 80 + Math.random() * Math.min(360, window.innerHeight * 0.5), 18);
+    }, 260);
+    setTimeout(function() {
+      clearInterval(fw);
+      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+      _grandCelebrationActive = false;
+      if (onDone) onDone();
+    }, 3500);
+  }
+
+  function renderError(msg) {
+    main.innerHTML = '<div class="error-box">' + msg + '</div>';
+  }
+
+  // Native recording bridge callbacks (Android app). Assigned BEFORE the no-token
+  // early return so they are always present when MainActivity invokes them. They
+  // reference hoisted function declarations and read NREC at call time. Amitai 2026-05-24.
+  window.__onNativeRecComplete = function(b64, mime) {
+    var ctx = NREC; NREC = null;
+    _nrecCleanupUI(ctx);
+    if (!ctx || ctx.cancelled) return;
+    try {
+      var bin = atob(b64); var len = bin.length;
+      var bytes = new Uint8Array(len);
+      for (var i = 0; i < len; i++) bytes[i] = bin.charCodeAt(i);
+      var blob = new Blob([bytes], { type: mime || 'audio/mp4' });
+      uploadClip(blob, ctx.wordKey, ctx.btn, ctx.rowEl);
+    } catch (e) { showToast('שגיאה בעיבוד ההקלטה', 3000); }
+  };
+  window.__onNativeRecError = function(code) {
+    var ctx = NREC; NREC = null;
+    _nrecCleanupUI(ctx);
+    _showMicPermissionHelp({ name: code || 'native_error' }, function() {
+      if (ctx) openNativeRecPanel(ctx.rowEl, ctx.wordKey, ctx.btn);
+    });
+  };
+
+  if (!TOKEN) return renderError('חסר טוקן בכתובת. בקשו את הקישור מחדש.');
+
+  function fmtRemaining(secs) {
+    if (secs >= 86400) return Math.floor(secs / 86400) + ' ימים';
+    if (secs >= 3600) return Math.floor(secs / 3600) + ' שעות';
+    if (secs >= 60) return Math.floor(secs / 60) + ' דקות';
+    return secs + ' שניות';
+  }
+
+  function loadInfo() {
+    fetch('/plonter/api/vocab_share_api.php?action=info&t=' + encodeURIComponent(TOKEN))
+      .then(function(r) { return r.json(); })
+      .then(function(j) {
+        if (!j.success) return renderError(j.error || 'שגיאה בטעינה');
+        if (j.group === true || j.is_group === true) {
+          IS_GROUP        = true;
+          GROUP_NAME      = j.group_name || '';
+          GROUP_REMAINING = parseInt(j.remaining_seconds, 10) || 0;
+          CATEGORIES      = (j.categories || []).map(function(c) {
+            return {
+              name: c.name || '',
+              words: c.words || [],
+              existing_keys: c.existing_keys || [],
+              existing_by_lang: c.existing_by_lang || { ar: (c.existing_keys || []), he: [] },
+              existing_names_by_lang: c.existing_names_by_lang || { ar: {}, he: {} },
+              expires_at: j.expires_at,
+              remaining_seconds: GROUP_REMAINING
+            };
+          });
+          showGroupGate();
+        } else {
+          showGate(j);
+        }
+      })
+      .catch(function(e) { renderError('שגיאת רשת: ' + e.message); });
+  }
+
+  // Group-mode name-gate. Same as showGate but flows into the picker on submit.
+  function showGroupGate() {
+    var cached = '';
+    try { cached = localStorage.getItem(NAME_KEY) || URL_RECORDER_NAME || localStorage.getItem(GLOBAL_NAME_KEY) || ''; } catch (_) {}
+    if (cached) {
+      try { localStorage.setItem(NAME_KEY, cached); localStorage.setItem(GLOBAL_NAME_KEY, cached); } catch (_) {}
+      NAME_CACHED = cached;
+      return renderGroupPicker();
+    }
+
+    main.innerHTML =
+      '<header><h1>הקלטה משותפת — ' + escapeHtml(GROUP_NAME) + '</h1>' +
+        '<div class="meta">' + CATEGORIES.length + ' סורות · פג תוקף בעוד ' + fmtRemaining(GROUP_REMAINING) + '</div>' +
+      '</header>' +
+      '<div class="card name-gate">' +
+        '<label for="rec-name">איך לקרוא לך? (רק כדי שלא נסתבך)</label>' +
+        '<input id="rec-name" type="text" placeholder="שם / כינוי" maxlength="40">' +
+        '<br><button class="btn-primary" id="rec-go">המשך</button>' +
+      '</div>';
+
+    var input = document.getElementById('rec-name');
+    var btn   = document.getElementById('rec-go');
+    input.focus();
+    function go() {
+      var v = input.value.trim();
+      if (!v) { input.focus(); return; }
+      try { localStorage.setItem(NAME_KEY, v); localStorage.setItem(GLOBAL_NAME_KEY, v); } catch (_) {}
+      NAME_CACHED = v;
+      renderGroupPicker();
+    }
+    btn.onclick = go;
+    input.addEventListener('keydown', function(e) { if (e.key === 'Enter') go(); });
+  }
+
+  // Render the group picker — one card per category, tap to enter recording.
+  // Inject the highlight-next animation CSS once. Bounce + pulsing border
+  // for ~5s, then settles back to normal. Pointer-events kept :auto on the
+  // animating element so taps pass through (spec point 7).
+  var _GRP_HIGHLIGHT_CSS_INJECTED = false;
+  function _injectGroupHighlightCss() {
+    if (_GRP_HIGHLIGHT_CSS_INJECTED) return;
+    _GRP_HIGHLIGHT_CSS_INJECTED = true;
+    var s = document.createElement('style');
+    // Darker card surfaces; green is reserved for the progress fill.
+    // Incomplete cards get a clear blue focus tint, completed cards stay
+    // neutral/slate. The first incomplete card keeps bouncing until it is
+    // completed, then the class moves to the next incomplete card on render.
+    s.textContent =
+      '@keyframes grpCardBounce { 0%,100%{transform:translateY(0) scale(1)} 18%{transform:translateY(-7px) scale(1.025)} 36%{transform:translateY(0) scale(0.995)} 54%{transform:translateY(-4px) scale(1.015)} 72%{transform:translateY(0) scale(1)} }' +
+      '@keyframes grpCardPulse  { 0%,100%{border-color:#7dd3fc;box-shadow:0 0 0 4px rgba(125,211,252,0.24),0 8px 22px rgba(15,23,42,0.18)} 50%{border-color:#22d3ee;box-shadow:0 0 0 6px rgba(34,211,238,0.25),0 10px 26px rgba(15,23,42,0.22)} }' +
+      '.group-cat-card{background:#334155;color:#e2e8f0;transition:background-color 0.15s,transform 0.05s,border-color 0.15s,box-shadow 0.15s}' +
+      '.group-cat-card:nth-of-type(odd){background:#2f3f52}' +
+      '.group-cat-card.todo{background:#1e3a5f}' +
+      '.group-cat-card.todo:nth-of-type(odd){background:#1d4d6f}' +
+      '.group-cat-card:hover{background:#25607c}' +
+      '.group-cat-card.done{background:#475569}' +
+      '.group-cat-card.done:nth-of-type(odd){background:#405064}' +
+      '.group-cat-card .cat-title{color:#bfdbfe}' +
+      '.group-cat-card.done .cat-title{color:#a7f3d0}' +
+      '.group-cat-card .cat-ratio{color:#dbeafe}' +
+      '.group-cat-card .cat-meta{color:#cbd5e1}' +
+      '.group-cat-card .cat-progress-track{background:#1e293b}' +
+      '.group-cat-card .cat-progress-fill{background:linear-gradient(90deg,#bbf7d0,#4ade80)}' +
+      '.group-cat-card.highlight-next{' +
+        'animation:grpCardBounce 1.05s ease-in-out infinite, grpCardPulse 1.55s ease-in-out infinite;' +
+        'border-color:#7dd3fc!important;' +
+        'box-shadow:0 0 0 4px rgba(125,211,252,0.24),0 8px 22px rgba(15,23,42,0.20)!important;' +
+        'pointer-events:auto;' +
+      '}';
+    document.head.appendChild(s);
+  }
+
+  // Track first-ever picker render so re-renders (after upload, after back)
+  // re-bounce but don't re-scroll (spec point 6).
+  var _PICKER_EVER_RENDERED = false;
+
+  function renderGroupPicker() {
+    CURRENT_CAT_OBJ = null;  // back to picker = no current cat
+    _injectGroupHighlightCss();
+
+    // First-incomplete computation — Arabic-only definition per spec:
+    // a cat is COMPLETE iff every word's arabic is present in
+    // existing_by_lang.ar. Hebrew side does NOT count.
+    var firstIncompleteIdx = -1;
+    for (var ci = 0; ci < CATEGORIES.length; ci++) {
+      var c0 = CATEGORIES[ci];
+      var ws = c0.words || [];
+      if (ws.length === 0) continue;  // empty cat — skip, spec point 5 corollary
+      var arSet0 = {}; (c0.existing_by_lang.ar || []).forEach(function(k) { arSet0[k] = true; });
+      var allArDone = ws.every(function(w) { return arSet0[w.arabic || '']; });
+      if (!allArDone) { firstIncompleteIdx = ci; break; }
+    }
+
+    var cardsHtml = CATEGORIES.map(function(cat, idx) {
+      var total = (cat.words || []).length;
+      var arSet = {}; (cat.existing_by_lang.ar || []).forEach(function(k) { arSet[k] = true; });
+      var heSet = {}; (cat.existing_by_lang.he || []).forEach(function(k) { heSet[k] = true; });
+      // "Done" = either-language recording exists for that word. Mirrors the
+      // most permissive sense of "this word has audio." Per-lang counts shown
+      // small underneath.
+      var doneAny = (cat.words || []).filter(function(w) {
+        var k = w.arabic || ''; return arSet[k] || heSet[k];
+      }).length;
+      var arDone = (cat.existing_by_lang.ar || []).length;
+      var heDone = (cat.existing_by_lang.he || []).length;
+      var pct = total ? Math.round((doneAny / total) * 100) : 0;
+      var allDone = total > 0 && doneAny === total;
+      var isHighlight = (idx === firstIncompleteIdx);
+      return (
+        '<button type="button" class="group-cat-card' + (allDone ? ' done' : ' todo') + (isHighlight ? ' highlight-next' : '') + '" data-idx="' + idx + '" ' +
+                'style="text-align:right;border:2px solid ' + (allDone ? '#64748b' : '#38bdf8') + ';' +
+                'border-radius:14px;padding:14px 16px;margin-bottom:10px;cursor:pointer;width:100%;' +
+                'box-shadow:0 2px 8px rgba(15,23,42,0.16);font-family:inherit;display:block">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">' +
+            '<span class="cat-title" style="font-size:1.08em;font-weight:bold">' + escapeHtml(cat.name) + (allDone ? ' ✓' : '') + '</span>' +
+            '<span class="cat-ratio" style="font-size:0.85em">' + doneAny + ' / ' + total + '</span>' +
+          '</div>' +
+          '<div class="cat-progress-track" style="height:7px;border-radius:4px;overflow:hidden;margin-top:8px">' +
+            '<div class="cat-progress-fill" style="height:100%;width:' + pct + '%;transition:width 0.3s"></div>' +
+          '</div>' +
+          '<div class="cat-meta" style="margin-top:6px;font-size:0.78em">ערבית: ' + arDone + ' · עברית: ' + heDone + ' · ' + pct + '%</div>' +
+        '</button>'
+      );
+    }).join('');
+
+    main.innerHTML =
+      '<header style="position:relative">' +
+        '<h1>הקלטה משותפת — ' + escapeHtml(GROUP_NAME) + '</h1>' +
+        '<div class="meta">שלום ' + escapeHtml(NAME_CACHED) + ' · פג תוקף בעוד ' + fmtRemaining(GROUP_REMAINING) + '</div>' +
+      '</header>' +
+      '<div class="card" style="padding:14px 16px;text-align:center">' +
+        '<div style="font-weight:bold;color:#0d9488;font-size:1.05em;margin-bottom:4px">בחר קטגוריה להקלטה</div>' +
+        '<div style="font-size:0.88em;color:#6b7280">' + CATEGORIES.length + ' קטגוריות זמינות בקבוצה זו</div>' +
+      '</div>' +
+      cardsHtml;
+
+    main.querySelectorAll('.group-cat-card').forEach(function(b) {
+      b.onclick = function() {
+        var idx = parseInt(b.getAttribute('data-idx'), 10);
+        if (isNaN(idx) || !CATEGORIES[idx]) return;
+        selectGroupCategory(CATEGORIES[idx]);
+      };
+    });
+
+    // Spec point 4 — scroll only on FIRST picker render. Subsequent
+    // renders (e.g. user tapped back from a recording view) only re-bounce
+    // via the CSS class; no scroll-jolt.
+    if (firstIncompleteIdx >= 0 && !_PICKER_EVER_RENDERED) {
+      _PICKER_EVER_RENDERED = true;
+      setTimeout(function() {
+        var card = main.querySelector('.group-cat-card[data-idx="' + firstIncompleteIdx + '"]');
+        if (card && card.scrollIntoView) {
+          try { card.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) {}
+        }
+      }, 300);
+    }
+    if (_PICKER_EVER_RENDERED === false && firstIncompleteIdx === -1) {
+      // First render with no incomplete cards — flag so subsequent renders
+      // (triggered by upload) can still skip the scroll if a now-incomplete
+      // card appears (defensive: shouldn't happen, but keeps "first scroll
+      // only" promise consistent).
+      _PICKER_EVER_RENDERED = true;
+    }
+  }
+
+  function selectGroupCategory(cat) {
+    CURRENT_CAT_OBJ = cat;
+    // Build a single-cat info-shape that renderList can consume. Share the
+    // existing_by_lang array references so uploadClip's mirror push (line in
+    // uploadClip) flows back into CATEGORIES[idx].existing_by_lang and the
+    // picker shows fresh counts on return without a re-fetch.
+    var synth = {
+      category: cat.name,
+      words: cat.words || [],
+      existing_keys: cat.existing_by_lang.ar || [],
+      existing_by_lang: cat.existing_by_lang,
+      existing_names_by_lang: cat.existing_names_by_lang || { ar: {}, he: {} },
+      expires_at: cat.expires_at,
+      remaining_seconds: cat.remaining_seconds
+    };
+    renderList(synth, NAME_CACHED);
+    setTimeout(function() {
+      _showTutorial(function() { setTimeout(_scrollToNextUnrecorded, 200); });
+    }, 120);
+  }
+
+  // Name-gate: ask for recipient name once, cached per-token in localStorage.
+  var NAME_KEY = 'plonter_share_name_' + TOKEN;
+  var GLOBAL_NAME_KEY = 'plonter_share_name_global';
+  var CATEGORY_NAME = '';
+  var _celebShown = false;
+  // Bilingual support (Amitai 2026-04-24 15:45): recordings are per language.
+  // Default tab is Arabic; Hebrew is opt-in via the tab switcher.
+  var LANG = (TARGET_LANG === 'he') ? 'he' : 'ar';
+  var INFO = null;                    // last loaded info (for tab switching re-render)
+  var NAME_CACHED = '';               // recipient display name
+  var _hebrewPromptShown = false;     // "finished Arabic — add Hebrew?" dialog fires once
+
+  // Group-share state (Plonter TODO #633, 2026-05-02). When IS_GROUP is true the
+  // token covers multiple categories; the user picks one from a grid first and
+  // the recording flow becomes scoped to CURRENT_CAT_OBJ.
+  var IS_GROUP = false;
+  var GROUP_NAME = '';
+  var GROUP_REMAINING = 0;
+  var CATEGORIES = [];                // [{name, words, existing_keys, existing_by_lang}, ...]
+  var CURRENT_CAT_OBJ = null;         // the cat currently being recorded into
+
+  function showGate(info) {
+    var cached = '';
+    try { cached = localStorage.getItem(NAME_KEY) || URL_RECORDER_NAME || localStorage.getItem(GLOBAL_NAME_KEY) || ''; } catch (_) {}
+    if (cached) {
+      try { localStorage.setItem(NAME_KEY, cached); localStorage.setItem(GLOBAL_NAME_KEY, cached); } catch (_) {}
+      return renderList(info, cached);
+    }
+
+    main.innerHTML =
+      '<header><h1>הקלטה משותפת</h1>' +
+        '<div class="meta">קטגוריה: ' + escapeHtml(info.category) + ' · פג תוקף בעוד ' + fmtRemaining(info.remaining_seconds) + '</div>' +
+      '</header>' +
+      '<div class="card name-gate">' +
+        '<label for="rec-name">איך לקרוא לך? (רק כדי שלא נסתבך)</label>' +
+        '<input id="rec-name" type="text" placeholder="שם / כינוי" maxlength="40">' +
+        '<br><button class="btn-primary" id="rec-go">המשך</button>' +
+      '</div>';
+
+    var input = document.getElementById('rec-name');
+    var btn = document.getElementById('rec-go');
+    input.focus();
+    function go() {
+      var v = input.value.trim();
+      if (!v) { input.focus(); return; }
+      try { localStorage.setItem(NAME_KEY, v); localStorage.setItem(GLOBAL_NAME_KEY, v); } catch (_) {}
+      renderList(info, v);
+      setTimeout(function() {
+        _showTutorial(function() {
+          setTimeout(function() {
+            if (!_scrollToTargetWord()) _scrollToNextUnrecorded();
+          }, 200);
+        });
+      }, 120);
+    }
+    btn.onclick = go;
+    input.addEventListener('keydown', function(e) { if (e.key === 'Enter') go(); });
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, function(c) {
+      return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c];
+    });
+  }
+
+  function _wordHasRecordingInLang(wordKey, lang) {
+    if (!INFO || !INFO.existing_by_lang || !INFO.existing_by_lang[lang]) return false;
+    return INFO.existing_by_lang[lang].indexOf(wordKey) !== -1;
+  }
+
+  function _recButtonStatus(wordKey) {
+    var hasAr = _wordHasRecordingInLang(wordKey, 'ar');
+    var hasHe = _wordHasRecordingInLang(wordKey, 'he');
+    if (hasAr) return { cls: 'done', title: hasHe ? 'הוקלט בערבית ובעברית — הקלט מחדש' : 'הוקלט בערבית — הקלט מחדש' };
+    if (hasHe) return { cls: 'partial-he', title: 'יש רק הקלטה בעברית — חסרה ערבית' };
+    return { cls: '', title: 'הקלטה' };
+  }
+
+  function _applyRecButtonStatus(btn, wordKey) {
+    if (!btn) return;
+    var st = _recButtonStatus(wordKey);
+    btn.classList.remove('done', 'partial-he');
+    if (st.cls) btn.classList.add(st.cls);
+    btn.title = st.title;
+  }
+
+  function _wireReturnLinkCompact() {
+    var link = document.getElementById('app-return-link');
+    if (!link || !TARGET_WORD) return;
+    function update() {
+      if (window.scrollY > 42) link.classList.add('return-compact');
+      else link.classList.remove('return-compact');
+    }
+    window.removeEventListener('scroll', _wireReturnLinkCompact._handler || function(){});
+    _wireReturnLinkCompact._handler = update;
+    window.addEventListener('scroll', update, { passive: true });
+    update();
+  }
+
+  function renderList(info, name) {
+    INFO = info;
+    NAME_CACHED = name;
+    CATEGORY_NAME = info.category || '';
+
+    // existing_by_lang is the new shape; existing_keys kept as ar fallback
+    // for any older server versions hit during a deploy race.
+    var byLang = info.existing_by_lang || { ar: (info.existing_keys || []), he: [] };
+    var existing = {};
+    (byLang[LANG] || []).forEach(function(k) { existing[k] = true; });
+    var namesByLang = info.existing_names_by_lang || {};
+    var recorderNames = namesByLang[LANG] || {};
+
+    var catLabel = LANG === 'he' ? 'עברית' : 'ערבית';
+    var returnMode = '';
+    try { returnMode = (new URLSearchParams(location.search || '').get('return') || '').toLowerCase(); } catch (_) {}
+    // E11 (2026-05-27): offer a "return to editing this category" button ONLY to
+    // the category's creator. return=edit is set by vocab.html ONLY when the
+    // owner opened this page from their own edit session (recipients' share
+    // links never carry it); gate additionally on a logged-in auth token as
+    // belt-and-braces. Previously this back-to-edit link required a TARGET_WORD,
+    // so the whole-category recordings page (no target word) lost it.
+    var _loggedInOwner = false;
+    try { _loggedInOwner = !!localStorage.getItem('plonter_auth_token'); } catch (_) {}
+    var _returnToEdit = (returnMode === 'edit') && _loggedInOwner;
+    var _prominentBack = TARGET_WORD || _returnToEdit;
+    var appLinkHref = _prominentBack
+      ? ('vocab.html?' + (_returnToEdit ? 'edit=1&' : '') + 'cat=' + encodeURIComponent(info.category || ''))
+      : 'vocab.html';
+    var appLinkText = _returnToEdit ? '↩ חזור לעריכת הקטגוריה' : (TARGET_WORD ? '↩ חזור לקטגוריה' : '📚 כנס לאוצם פלונטר');
+    var guideStyle = _prominentBack
+      ? 'position:absolute;top:62px;left:14px;background:rgba(15,23,42,0.82);color:white;border:1px solid rgba(255,255,255,0.35);border-radius:10px;padding:7px 13px;font-family:inherit;font-size:0.82em;font-weight:bold;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,0.22)'
+      : 'position:absolute;top:12px;left:14px;background:rgba(255,255,255,0.22);color:white;border:1px solid rgba(255,255,255,0.45);border-radius:8px;padding:6px 12px;font-family:inherit;font-size:0.82em;font-weight:bold;cursor:pointer';
+    var appLinkStyle = _prominentBack
+      ? 'position:fixed;top:12px;left:12px;z-index:9999;display:inline-block;padding:12px 18px;background:linear-gradient(135deg,#0d9488,#0891b2);color:white;border:2px solid rgba(255,255,255,0.55);border-radius:12px;font-family:inherit;font-size:1em;text-decoration:none;cursor:pointer;font-weight:bold;box-shadow:0 5px 18px rgba(13,148,136,0.35)'
+      : 'position:absolute;top:48px;left:14px;display:inline-block;padding:4px 10px;background:rgba(255,255,255,0.10);color:rgba(255,255,255,0.85);border:1px solid rgba(255,255,255,0.20);border-radius:7px;font-family:inherit;font-size:0.76em;text-decoration:none;cursor:pointer';
+    var html = '';
+    // Group-mode: back-to-picker button sits above the header so it's the first
+    // thing the user sees when they enter a category.
+    if (IS_GROUP) {
+      html += '<button id="back-to-group-btn" type="button" style="display:block;width:100%;padding:10px 14px;background:white;color:#0d9488;border:2px solid #0d9488;border-radius:10px;font-family:inherit;font-size:0.95em;font-weight:bold;cursor:pointer;margin-bottom:10px;text-align:right">→ חזרה לרשימת הקטגוריות (' + escapeHtml(GROUP_NAME) + ')</button>';
+    }
+    html += '<header style="position:relative">' +
+      '<button id="guide-btn" type="button" style="' + guideStyle + '">📖 מדריך למשתמש</button>' +
+      // Plonter task #23 (2026-04-29) — secondary link to the main app,
+      // sits just below the guide button (subtler styling per Amitai 17:27).
+      '<a id="app-return-link" href="' + appLinkHref + '" style="' + appLinkStyle + '">' + appLinkText + '</a>' +
+      '<h1 style="padding-left:140px">הקלטה משותפת — ' + escapeHtml(info.category) + '</h1>' +
+      '<div class="meta">שלום ' + escapeHtml(name) + ' · פג תוקף בעוד ' + fmtRemaining(info.remaining_seconds) + '</div></header>';
+
+    // Owner-only: a shortcut back into the main app's share-link dialog so the
+    // owner can give OTHER people access to record into this category. Owner =
+    // a Plonter auth token exists in localStorage (set by vocab.html on login).
+    // Recipients (no token) never see this button.
+    var _isOwnerView = false;
+    try { _isOwnerView = !!localStorage.getItem('plonter_auth_token'); } catch (_) {}
+    if (_isOwnerView) {
+      html += '<button id="owner-share-access-btn" type="button" style="display:block;width:100%;padding:11px 14px;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:white;border:none;border-radius:10px;font-family:inherit;font-size:0.95em;font-weight:bold;cursor:pointer;margin:0 0 12px;box-shadow:0 4px 14px rgba(124,58,237,0.3)">🔗 תן לאחרים גישה להקלטות</button>';
+    }
+
+    var remS = parseInt(info.remaining_seconds, 10) || 0;
+    if (remS > 0 && remS < 3600) {
+      html += '<div class="ttl-warn-card critical">⏰ פחות משעה! הקישור פג בעוד ' + fmtRemaining(remS) + '. השלם את ההקלטות בהקדם.</div>';
+    } else if (remS > 0 && remS < 86400) {
+      html += '<div class="ttl-warn-card">⏰ הקישור פג בעוד ' + fmtRemaining(remS) + ' — כדאי להשלים היום.</div>';
+    }
+
+    // Language tabs — Arabic is primary; Hebrew is optional/bonus.
+    html += '<div class="lang-tabs" role="tablist">' +
+      '<button type="button" class="lang-tab' + (LANG==='ar'?' active':'') + '" data-lang="ar" role="tab">🅰️ ערבית <span class="lang-tab-hint">(שאלות)</span></button>' +
+      '<button type="button" class="lang-tab' + (LANG==='he'?' active':'') + '" data-lang="he" role="tab">🇮🇱 עברית <span class="lang-tab-hint">(תשובות)</span></button>' +
+    '</div>';
+
+    if (!info.words || !info.words.length) {
+      html += '<div class="card" style="text-align:center;color:#6b7280">אין מילים לקטגוריה זו.</div>';
+    } else {
+      var totalW = info.words.length;
+      var doneW = info.words.filter(function(w) { return existing[(w.arabic||'')]; }).length;
+      var pct = totalW ? Math.round((doneW / totalW) * 100) : 0;
+      var progLabel = LANG === 'he' ? 'הוקלטו עברית' : 'הוקלטו ערבית';
+      html += '<div id="progress-card" class="card" style="padding:12px 14px">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">' +
+          '<span style="font-weight:bold;color:#0d9488" id="progress-label">' + progLabel + ' <span dir="ltr" style="unicode-bidi:isolate">' + doneW + ' / ' + totalW + '</span></span>' +
+          '<span style="font-size:0.85em;color:#6b7280" id="progress-pct">' + pct + '%</span>' +
+        '</div>' +
+        '<div style="height:8px;background:#e5e7eb;border-radius:4px;overflow:hidden">' +
+          '<div id="progress-bar" style="height:100%;background:linear-gradient(90deg,#0d9488,#059669);width:' + pct + '%;transition:width 0.3s"></div>' +
+        '</div>' +
+        '<div id="progress-celebrate" style="display:' + (doneW === totalW && totalW > 0 ? 'block' : 'none') + ';text-align:center;margin-top:10px;padding:14px 10px;background:linear-gradient(135deg,#d1fae5,#a7f3d0);border-radius:8px;color:#065f46;font-weight:bold">' +
+          '<div style="font-size:1.05em">🎉 הושלם! ' + (LANG==='he'?'הקלטת את כל המילים בעברית':'הקלטת את כל המילים בערבית') + '</div>' +
+          '<a id="play-cat-link" href="#" target="_blank" rel="noopener" style="display:inline-block;margin-top:10px;padding:11px 22px;background:linear-gradient(135deg,#0d9488,#0891b2);color:white;text-decoration:none;border-radius:10px;font-weight:bold;font-size:0.98em;box-shadow:0 3px 10px rgba(13,148,136,0.3)">🎮 לשחק בקטגוריה</a>' +
+        '</div>' +
+        '<div style="text-align:center;display:flex;gap:8px;justify-content:center;flex-wrap:wrap">' +
+          '<button id="play-from-current-btn" type="button" title="נגן רציף מהכפתור הנוכחי — לחץ שוב לעצירה">▶ נגן רציף מהכפתור הנוכחי</button>' +
+          '<button id="seq-speed-btn-top" type="button" title="מהירות השמעה — לחץ לסבב 1× / 1.5× / 2×">×1</button>' +
+        '</div>' +
+      '</div>';
+      var instruction = LANG === 'he'
+        ? 'לחצו על 🎤 ליד כל מילה כדי להקליט אותה בעברית. זה בונוס — לא חובה.'
+        : 'לחצו על 🎤 כדי להקליט את המילה בערבית. הקלטה חדשה מחליפה את הקיימת.';
+      html += '<div class="card" style="padding:10px 12px"><div style="font-size:0.9em;color:#6b7280;text-align:center">' + instruction + '</div></div>';
+      if (TARGET_WORD) {
+        html += '<div class="card" style="padding:12px 14px;text-align:center">' +
+          '<div style="font-size:0.95em;font-weight:bold;color:#0d9488;margin-bottom:8px">רוצה שעוד אנשים יקליטו? שתף!</div>' +
+          '<div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">' +
+            '<button id="target-share-copy-btn" type="button" style="padding:9px 14px;background:#eff6ff;color:#2563eb;border:1.5px solid #2563eb;border-radius:9px;cursor:pointer;font-family:inherit;font-weight:bold">📋 העתק קישור</button>' +
+            '<button id="target-share-wa-btn" type="button" style="padding:9px 14px;background:#25D366;color:white;border:none;border-radius:9px;cursor:pointer;font-family:inherit;font-weight:bold">💬 וואטסאפ</button>' +
+          '</div>' +
+        '</div>';
+      }
+      info.words.forEach(function(w, i) {
+        var wordKey = (w.arabic || '');
+        var hasRec = !!existing[wordKey];
+        var recStatus = _recButtonStatus(wordKey);
+        var recorderName = hasRec ? (recorderNames[wordKey] || '') : '';
+        var recorderLabel = hasRec ? (recorderName ? ('הוקלט ע״י ' + recorderName) : 'הוקלט ע״י לא ידוע') : '';
+        // Active language gets the big primary slot; the OTHER language is
+        // shown small + gray + in parens beside it (Amitai 2026-04-25 22:43,
+        // reversing the 04-24 16:45 "active-only" rule). AR mode → arabic
+        // big + (hebrew) gray; HE mode → hebrew big + (arabic) gray. The
+        // word-form (Arabic plural / preposition) stays in its slot — it's
+        // already small + gray and serves as the "addition" line.
+        var primary = LANG === 'he' ? escapeHtml(w.hebrew || '') : escapeHtml(w.arabic || '');
+        var secondary = LANG === 'he' ? escapeHtml(w.arabic || '') : escapeHtml(w.hebrew || '');
+        // In AR-recording mode (Amitai 2026-04-27 17:34): put form in the middle
+        // (right after arabic) and hebrew-translation on the left. HE-recording
+        // mode keeps the original order (hebrew big → (arabic) → form).
+        var midSlots = (LANG === 'he')
+          ? ((secondary ? '<span class="word-secondary">(' + secondary + ')</span>' : '') +
+             '<span class="word-form">' + escapeHtml(w.form || '') + '</span>')
+          : ('<span class="word-form">' + escapeHtml(w.form || '') + '</span>' +
+             (secondary ? '<span class="word-secondary">(' + secondary + ')</span>' : ''));
+        html += '<div class="word-row" data-key="' + escapeHtml(wordKey) + '" data-idx="' + i + '">' +
+          '<span class="word-num">' + (i + 1) + '.</span>' +
+          '<span class="word-ar">' + primary + '</span>' +
+          midSlots +
+          (hasRec ? '<button class="play-btn" data-action="play" title="השמע הקלטה קיימת">▶️</button>' : '') +
+          (hasRec ? '<span class="recording-owner" title="' + escapeHtml(recorderLabel) + '">🎙 ' + escapeHtml(recorderName || 'לא ידוע') + '</span>' : '') +
+          '<button class="rec-btn' + (recStatus.cls ? ' ' + recStatus.cls : '') + '" data-action="rec" title="' + escapeHtml(recStatus.title) + '">🎤</button>' +
+          (hasRec ? '<span class="has-recording-badge" title="יש הקלטה קיימת">✓</span>' : '') +
+        '</div>';
+      });
+      // Footer "switch language" button — Amitai 2026-04-26 07:27. Lets the
+      // teacher flip languages without scrolling back to the top tabs.
+      var otherLang = LANG === 'he' ? 'ar' : 'he';
+      var otherLangLabel = otherLang === 'he' ? 'עברית' : 'ערבית';
+      html += '<div class="swap-lang-footer">' +
+        '<span class="swap-lang-hint">סיימת את ה' + (LANG === 'he' ? 'עברית' : 'ערבית') + '? אפשר להקליט גם ב-' + otherLangLabel + '</span>' +
+        '<button id="swap-lang-footer-btn" type="button">🔄 עבור ל' + otherLangLabel + '</button>' +
+      '</div>';
+    }
+
+    main.innerHTML = html;
+    _wireReturnLinkCompact();
+
+    var backBtn = document.getElementById('back-to-group-btn');
+    if (backBtn) backBtn.onclick = function() {
+      // Stop any in-flight playback/recording before bouncing the DOM.
+      if (typeof SEQ_PLAY !== 'undefined' && SEQ_PLAY) { try { _stopSequencePlay(); } catch (_) {} }
+      try { closePlayerPanel(); } catch (_) {}
+      if (REC) { try { REC.cancelled = true; REC.rec.stop(); } catch (_) {} }
+      renderGroupPicker();
+    };
+
+    var guideBtn = document.getElementById('guide-btn');
+    if (guideBtn) guideBtn.onclick = function() { _showTutorial(); };
+    var ownerShareBtn = document.getElementById('owner-share-access-btn');
+    if (ownerShareBtn) ownerShareBtn.onclick = function() {
+      var cat = (INFO && INFO.category) || CATEGORY_NAME || '';
+      if (!cat) { showToast('לא נמצאה קטגוריה'); return; }
+      // Open the share-link dialog IN-PAGE as an overlay (no navigation to
+      // vocab.html, which used to flash the home screen first — Amitai
+      // 2026-05-24). See INPAGE_SHARE_DIALOG_20260524 below.
+      openShareLinkDialog(cat);
+    };
+    var targetShareUrl = location.origin + location.pathname.replace(/[^\/]*$/, '') + 'share.html?t=' + encodeURIComponent(TOKEN);
+    var targetShareCopyBtn = document.getElementById('target-share-copy-btn');
+    if (targetShareCopyBtn) targetShareCopyBtn.onclick = function() {
+      navigator.clipboard.writeText(targetShareUrl).then(function() { showToast('הקישור הועתק ✓'); });
+    };
+    var targetShareWaBtn = document.getElementById('target-share-wa-btn');
+    if (targetShareWaBtn) targetShareWaBtn.onclick = function() {
+      var msg = 'שלום! הכינותי קטגוריית מילים' + (CATEGORY_NAME ? ' ("' + CATEGORY_NAME + '")' : '') + ' ואשמח אם תקליט/י את ההגייה: ' + targetShareUrl;
+      window.open('https://wa.me/?text=' + encodeURIComponent(msg), '_blank', 'noopener');
+    };
+
+    var speedBtnTop = document.getElementById('seq-speed-btn-top');
+    if (speedBtnTop) {
+      speedBtnTop.textContent = _formatSpeed(SEQ_SPEED);
+      speedBtnTop.onclick = function() {
+        var i = _SEQ_SPEED_STEPS.indexOf(SEQ_SPEED);
+        SEQ_SPEED = _SEQ_SPEED_STEPS[(i + 1) % _SEQ_SPEED_STEPS.length];
+        speedBtnTop.textContent = _formatSpeed(SEQ_SPEED);
+        if (PLAYER && PLAYER.audio) { try { PLAYER.audio.playbackRate = SEQ_SPEED; } catch (_) {} }
+      };
+    }
+    // Sole start/stop button for sequence playback (Amitai 2026-04-26 07:21
+    // + 07:22: removed "השמע הכל ברצף" entirely; this button is now the only
+    // entry point AND doubles as the stop button while sequence is active).
+    var playFromCurBtn = document.getElementById('play-from-current-btn');
+    if (playFromCurBtn) {
+      playFromCurBtn.onclick = function() {
+        if (SEQ_PLAY) { _stopSequencePlay(); showToast('נעצר'); }
+        else _startSequencePlayFromCurrent();
+      };
+      // Re-sync label/style to whichever state we're in (handles re-renders
+      // mid-sequence — switchLang triggers renderList while SEQ_PLAY is null,
+      // but defensive against future refactors).
+      _syncPlayFromCurBtn();
+    }
+    var swapBtn = document.getElementById('swap-lang-footer-btn');
+    if (swapBtn) swapBtn.onclick = function() { switchLang(LANG === 'he' ? 'ar' : 'he'); };
+    // Initial render: place the floating jump-to-last-unrecorded button.
+    setTimeout(_updateJumpToNextBtn, 80);
+
+    main.querySelectorAll('.lang-tab').forEach(function(tab) {
+      tab.onclick = function() { switchLang(tab.getAttribute('data-lang')); };
+    });
+
+    main.querySelectorAll('.word-row').forEach(function(row) {
+      var key = row.getAttribute('data-key');
+      var recBtn = row.querySelector('.rec-btn');
+      if (recBtn) recBtn.onclick = function(e) {
+        e.stopPropagation();
+        row.classList.remove('highlight-next');
+        _markLastTouched(row);
+        if (NREC && NREC.btn === recBtn) {
+          if (NREC.countingDown) return;
+          if (NREC.stop) NREC.stop();
+          return;
+        }
+        if (REC && REC.btn === recBtn) {
+          if (REC.countingDown) return;
+          try { REC.rec.stop(); } catch (_) {}
+          return;
+        }
+        var hasRec = !!row.querySelector('.play-btn');
+        if (hasRec) _confirmOverwrite(row, key, recBtn, function() { openRecPanel(row, key, recBtn); });
+        else openRecPanel(row, key, recBtn);
+      };
+      var playBtn = row.querySelector('.play-btn');
+      if (playBtn) playBtn.onclick = function(e) { e.stopPropagation(); row.classList.remove('highlight-next'); _markLastTouched(row); openPlayerPanel(row, key); };
+      row.style.cursor = 'pointer';
+      row.onclick = function(e) {
+        if (e.target.closest('button')) return;
+        // While THIS row is being recorded, tapping anywhere on it ends the
+        // recording (saves it) — matches the red-tint visual cue. Must cover
+        // BOTH the browser path (REC) and the native app path (NREC). Amitai
+        // 2026-04-24 16:44; native (NREC) branch added 2026-05-24 — it was
+        // missing, so in the app tapping the word box mid-recording fell
+        // through to openRecPanel (new recording) instead of saving.
+        if (NREC && NREC.rowEl === row) {
+          if (NREC.countingDown) return; // wait until real-record phase
+          if (NREC.stop) NREC.stop();
+          return;
+        }
+        if (REC && REC.rowEl === row) {
+          if (REC.countingDown) return; // wait until real-record phase
+          try { REC.rec.stop(); } catch (_) {}
+          return;
+        }
+        row.classList.remove('highlight-next');
+        _markLastTouched(row);
+        if (row.querySelector('.play-btn')) {
+          openPlayerPanel(row, key);
+        } else {
+          var rb = row.querySelector('.rec-btn');
+          if (rb) {
+            if (REC && REC.btn === rb) { try { REC.rec.stop(); } catch (_) {} return; }
+            openRecPanel(row, key, rb);
+          }
+        }
+      };
+    });
+    // Suppress the "all done!" modal if the recipient already arrived at 100% — only celebrate actual new completions.
+    var rowsNow = document.querySelectorAll('.word-row');
+    if (rowsNow.length > 0) {
+      var doneNow = 0;
+      rowsNow.forEach(function(r) { if (r.querySelector('.play-btn')) doneNow++; });
+      if (doneNow === rowsNow.length) _celebShown = true;
+    }
+    _updateProgress();
+    if (rowsNow.length > 0) setTimeout(function() {
+      if (!_scrollToTargetWord()) _scrollToNextUnrecorded();
+    }, 250);
+  }
+
+  function switchLang(newLang) {
+    if (newLang !== 'ar' && newLang !== 'he') return;
+    if (LANG === newLang) return;
+    if (REC) { showToast('סיים את ההקלטה קודם'); return; }
+    _stopSequencePlay();
+    closePlayerPanel();
+    LANG = newLang;
+    _celebShown = false;  // each tab gets its own celebration modal once reaching 100%
+    if (INFO && NAME_CACHED) renderList(INFO, NAME_CACHED);
+  }
+
+  // When the user hits 100% in Arabic for the first time, suggest switching
+  // to Hebrew as a bonus. Only fires once per session (Amitai 2026-04-24 15:45).
+  function _maybeSuggestHebrew() {
+    if (LANG !== 'ar') return;
+    if (_hebrewPromptShown) return;
+    _hebrewPromptShown = true;
+    var overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.55);z-index:10003;display:flex;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(3px)';
+    overlay.innerHTML =
+      '<div style="background:white;border-radius:16px;padding:24px 22px;max-width:400px;width:100%;direction:rtl;text-align:center;box-shadow:0 8px 32px rgba(0,0,0,0.25)">' +
+        '<div style="font-size:2.2em;margin-bottom:4px">✨</div>' +
+        '<div style="font-size:1.1em;font-weight:bold;margin-bottom:10px;color:#065f46">סיימת את הערבית, כל הכבוד!</div>' +
+        '<div style="font-size:0.92em;color:#6b7280;margin-bottom:18px;line-height:1.55">רוצה להוסיף גם הקלטות בעברית? זה בונוס — עוזר לתלמידים שלא מכירים את המילה בכלל לראות את התרגום בעברית בשמיעה.</div>' +
+        '<div style="display:flex;flex-direction:column;gap:10px">' +
+          '<button data-c="he" style="padding:12px 18px;background:linear-gradient(135deg,#2563eb,#7c3aed);color:white;border:none;border-radius:10px;cursor:pointer;font-weight:bold;font-size:0.95em">🇮🇱 בואו נקליט עברית</button>' +
+          '<button data-c="no" style="padding:10px 18px;background:white;color:#6b7280;border:2px solid #e5e7eb;border-radius:10px;cursor:pointer;font-size:0.9em">תודה, מספיק לי</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(overlay);
+    function close() { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); }
+    overlay.addEventListener('click', function(e) { if (e.target === overlay) close(); });
+    var heBtn = overlay.querySelector('[data-c="he"]');
+    var noBtn = overlay.querySelector('[data-c="no"]');
+    if (heBtn) heBtn.onclick = function() { close(); switchLang('he'); };
+    if (noBtn) noBtn.onclick = close;
+  }
+
+  function _showTutorial(onDone) {
+    var overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:10002;display:flex;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(3px)';
+    overlay.innerHTML =
+      '<div style="background:white;border-radius:16px;padding:26px 22px;max-width:420px;width:100%;direction:rtl;text-align:right;box-shadow:0 10px 40px rgba(0,0,0,0.3)">' +
+        '<div style="font-size:2em;text-align:center;margin-bottom:8px">🎤</div>' +
+        '<div style="font-size:1.15em;font-weight:bold;margin-bottom:14px;text-align:center;color:#0d9488">ברוכים הבאים! ככה מקליטים</div>' +
+        '<ol style="padding-right:22px;margin:0 0 14px;line-height:1.75;font-size:0.95em;color:#1f2937">' +
+          '<li>לחצו על <b style="color:#dc2626">🎤</b> ליד כל מילה כדי להתחיל להקליט.</li>' +
+          '<li>הגידו את המילה בצורה ברורה וטבעית (עד 30 שניות).</li>' +
+          '<li>לחצו <b>⏹</b> (או שוב על 🎤) כדי לסיים — ההקלטה נשמרת אוטומטית.</li>' +
+          '<li>רוצים להקליט מחדש? לחצו שוב על 🎤 ליד אותה מילה.</li>' +
+          '<li>בסיום כל המילים תוכלו להיכנס לאפליקציה ולשחק.</li>' +
+        '</ol>' +
+        '<div style="font-size:0.85em;color:#6b7280;background:#f3f4f6;border-radius:8px;padding:10px;margin-bottom:14px;line-height:1.6">💡 <b>טיפים:</b><br>• לחיצה על שורת מילה (ללא כפתור) → השמעה אם יש הקלטה, הקלטה אם עוד אין.<br>• קיצורי מקלדת (דסקטופ): <b>רווח</b>=הקלטה/עצירה, <b>N</b>=מילה הבאה, <b>P</b>=השמעה, <b>Esc</b>=ביטול.</div>' +
+        '<button data-c="ok" style="width:100%;padding:13px;background:#0d9488;color:white;border:none;border-radius:10px;cursor:pointer;font-weight:bold;font-size:1em">הבנתי, מתחילים</button>' +
+      '</div>';
+    document.body.appendChild(overlay);
+    overlay.querySelector('[data-c="ok"]').onclick = function() {
+      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+      if (onDone) onDone();
+    };
+  }
+
+  function _updateProgress() {
+    var rows = document.querySelectorAll('.word-row');
+    var total = rows.length;
+    if (!total) return;
+    var done = 0;
+    rows.forEach(function(r) { if (r.querySelector('.play-btn')) done++; });
+    var pct = Math.round((done / total) * 100);
+    var allDone = (done === total && total > 0);
+    var lbl = document.getElementById('progress-label');
+    var pc = document.getElementById('progress-pct');
+    var bar = document.getElementById('progress-bar');
+    var cel = document.getElementById('progress-celebrate');
+    var playLink = document.getElementById('play-cat-link');
+    if (lbl) {
+      var liveProgLabel = LANG === 'he' ? 'הוקלטו עברית' : 'הוקלטו ערבית';
+      lbl.innerHTML = liveProgLabel + ' <span dir="ltr" style="unicode-bidi:isolate">' + done + ' / ' + total + '</span>';
+    }
+    if (pc) pc.textContent = pct + '%';
+    if (bar) bar.style.width = pct + '%';
+    if (cel) cel.style.display = allDone ? 'block' : 'none';
+    if (playLink && CATEGORY_NAME) playLink.href = 'vocab.html?cat=' + encodeURIComponent(CATEGORY_NAME);
+    var paBtn = document.getElementById('play-from-current-btn');
+    if (paBtn && !SEQ_PLAY) paBtn.disabled = (done < 1);
+    if (allDone && !_celebShown) {
+      _celebShown = true;
+      if (LANG === 'ar' && !_hebrewPromptShown) {
+        // Arabic 100% — bridge to Hebrew-bonus pitch (Amitai 2026-04-24 15:45).
+        _showGrandArabicCelebration(_maybeSuggestHebrew);
+      } else {
+        _showAllDoneModal();
+      }
+    }
+  }
+
+  function _currentHighlightedRow() { return document.querySelector('.word-row.highlight-next'); }
+
+  document.addEventListener('keydown', function(e) {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    var tag = (e.target && e.target.tagName) ? e.target.tagName.toUpperCase() : '';
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target && e.target.isContentEditable)) return;
+    if (document.querySelector('[data-c="ok"], [data-c="listen"], [data-c="record"], [data-c="stay"], [data-c="play"]')) return;
+    var row = _currentHighlightedRow();
+    if (e.code === 'Space' || e.key === ' ') {
+      if (!row) return;
+      e.preventDefault();
+      var rb = row.querySelector('.rec-btn');
+      if (!rb) return;
+      if (REC && REC.btn === rb) { try { REC.rec.stop(); } catch (_) {} return; }
+      var hasRec = !!row.querySelector('.play-btn');
+      var key = row.getAttribute('data-key');
+      if (hasRec) _confirmOverwrite(row, key, rb, function() { openRecPanel(row, key, rb); });
+      else openRecPanel(row, key, rb);
+      row.classList.remove('highlight-next');
+    } else if (e.key === 'n' || e.key === 'N' || e.key === 'נ') {
+      e.preventDefault();
+      _scrollToNextUnrecorded();
+    } else if (e.key === 'p' || e.key === 'P' || e.key === 'פ') {
+      if (!row) return;
+      e.preventDefault();
+      if (row.querySelector('.play-btn')) {
+        openPlayerPanel(row, row.getAttribute('data-key'));
+        row.classList.remove('highlight-next');
+      }
+    } else if (e.key === 'Escape') {
+      if (REC) { try { REC.cancelled = true; REC.rec.stop(); } catch (_) {} }
+      closePlayerPanel();
+    }
+  });
+
+  function _scrollToNextUnrecorded() {
+    document.querySelectorAll('.word-row.highlight-next').forEach(function(r) { r.classList.remove('highlight-next'); });
+    var rows = document.querySelectorAll('.word-row');
+    for (var i = 0; i < rows.length; i++) {
+      if (!rows[i].querySelector('.play-btn')) {
+        var target = rows[i];
+        try { target.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) {}
+        target.classList.add('highlight-next');
+        return;
+      }
+    }
+  }
+
+  function _scrollToTargetWord() {
+    if (!TARGET_WORD) return false;
+    var rows = document.querySelectorAll('.word-row');
+    var targetIdx = parseInt(TARGET_IDX, 10);
+    if (!isNaN(targetIdx) && targetIdx >= 0) {
+      for (var j = 0; j < rows.length; j++) {
+        if (parseInt(rows[j].getAttribute('data-idx'), 10) === targetIdx &&
+            rows[j].getAttribute('data-key') === TARGET_WORD) {
+          var indexedTarget = rows[j];
+          document.querySelectorAll('.word-row.highlight-next').forEach(function(r) { r.classList.remove('highlight-next'); });
+          try { indexedTarget.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) {}
+          indexedTarget.classList.add('highlight-next');
+          _markLastTouched(indexedTarget);
+          return true;
+        }
+      }
+    }
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i].getAttribute('data-key') === TARGET_WORD) {
+        var target = rows[i];
+        document.querySelectorAll('.word-row.highlight-next').forEach(function(r) { r.classList.remove('highlight-next'); });
+        try { target.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) {}
+        target.classList.add('highlight-next');
+        _markLastTouched(target);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // Last-touched word marker (Amitai 2026-04-25 22:34): a small frame around
+  // the row the teacher last interacted with — record / play / row-click —
+  // so they can keep their place when scrolling.
+  function _markLastTouched(rowEl) {
+    if (!rowEl) return;
+    document.querySelectorAll('.word-row.last-touched').forEach(function(r) {
+      if (r !== rowEl) r.classList.remove('last-touched');
+    });
+    rowEl.classList.add('last-touched');
+  }
+  function _getLastTouchedRow() { return document.querySelector('.word-row.last-touched'); }
+
+  // Floating "jump to next unrecorded" arrow (Amitai 2026-04-26 07:14: always
+  // direct to TOPMOST unrecorded, so the teacher works through the list in
+  // order). Originally aimed at bottom-most; flipped to top-most. Arrow points
+  // ↑ (target above viewport) or ↓ (below); hidden when target is in view.
+  function _findFirstUnrecordedRow() {
+    var rows = document.querySelectorAll('.word-row');
+    for (var i = 0; i < rows.length; i++) {
+      if (!rows[i].querySelector('.play-btn')) return rows[i];
+    }
+    return null;
+  }
+  function _updateJumpToNextBtn() {
+    var btn = document.getElementById('jump-to-next-unrec-btn');
+    // Suppress entirely during sequence playback — the play/stop button at
+    // the top is the only seq-control affordance (Amitai 2026-04-26 07:19).
+    if (SEQ_PLAY) {
+      if (btn) btn.style.display = 'none';
+      return;
+    }
+    var target = _findFirstUnrecordedRow();
+    if (!target) {
+      if (btn) btn.style.display = 'none';
+      return;
+    }
+    if (!btn) {
+      btn = document.createElement('button');
+      btn.id = 'jump-to-next-unrec-btn';
+      btn.type = 'button';
+      btn.title = 'קפוץ למילה הבאה להקליט';
+      btn.onclick = function() {
+        var t = _findFirstUnrecordedRow();
+        if (!t) return;
+        try { t.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) {}
+        document.querySelectorAll('.word-row.highlight-next').forEach(function(r) { r.classList.remove('highlight-next'); });
+        t.classList.add('highlight-next');
+        setTimeout(_updateJumpToNextBtn, 600);
+      };
+      document.body.appendChild(btn);
+    }
+    var rect = target.getBoundingClientRect();
+    var vh = window.innerHeight || document.documentElement.clientHeight;
+    if (rect.bottom < 80) {
+      // target is above viewport
+      btn.textContent = '↑ למילה הבאה להקליט';
+      btn.style.top = '140px';
+      btn.style.bottom = '';
+      btn.style.display = 'block';
+    } else if (rect.top > vh - 60) {
+      // target is below viewport
+      btn.textContent = '↓ למילה הבאה להקליט';
+      btn.style.bottom = '20px';
+      btn.style.top = '';
+      btn.style.display = 'block';
+    } else {
+      btn.style.display = 'none';
+    }
+  }
+  // Throttle scroll updates a bit so we don't churn on every pixel.
+  (function() {
+    var pending = false;
+    window.addEventListener('scroll', function() {
+      if (pending) return;
+      pending = true;
+      requestAnimationFrame(function() { pending = false; _updateJumpToNextBtn(); });
+    }, { passive: true });
+    window.addEventListener('resize', function() { setTimeout(_updateJumpToNextBtn, 50); });
+  })();
+
+  // Sequence-play variant that starts from a chosen index (Amitai 2026-04-25
+  // 22:37 "מהמילה הנוכחית"). Uses the last-touched row as the starting point;
+  // falls back to first-row-in-viewport, then to the start.
+  function _startSequencePlayFrom(startRowEl) {
+    _stopSequencePlay();
+    closePlayerPanel();
+    if (REC) { showToast('סיים את ההקלטה קודם'); return; }
+    var rows = [];
+    document.querySelectorAll('.word-row').forEach(function(r) {
+      if (r.querySelector('.play-btn')) rows.push(r);
+    });
+    if (!rows.length) { showToast('אין הקלטות להשמעה רציפה'); return; }
+    var startIdx = 0;
+    if (startRowEl) {
+      var directIdx = rows.indexOf(startRowEl);
+      if (directIdx >= 0) {
+        startIdx = directIdx;
+      } else {
+        // startRowEl has no recording (not in rows). Pick the first row that
+        // comes AFTER it in DOM order; if none, fall back to start.
+        for (var i = 0; i < rows.length; i++) {
+          var pos = startRowEl.compareDocumentPosition(rows[i]);
+          if (pos & Node.DOCUMENT_POSITION_FOLLOWING) { startIdx = i; break; }
+        }
+      }
+    }
+    SEQ_PLAY = { rows: rows, idx: startIdx, stopped: false };
+    _renderSeqStopBtn();
+    _seqPlayNext();
+  }
+  function _startSequencePlayFromCurrent() {
+    var anchor = _getLastTouchedRow();
+    if (!anchor) {
+      // Fallback: first row whose top is currently inside the viewport.
+      var rows = document.querySelectorAll('.word-row');
+      for (var i = 0; i < rows.length; i++) {
+        var r = rows[i].getBoundingClientRect();
+        if (r.bottom > 0 && r.top < (window.innerHeight || 800)) { anchor = rows[i]; break; }
+      }
+    }
+    _startSequencePlayFrom(anchor);
+  }
+
+  function _showAllDoneModal() {
+    var overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.55);z-index:10001;display:flex;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(3px)';
+    var url = CATEGORY_NAME ? 'vocab.html?cat=' + encodeURIComponent(CATEGORY_NAME) : 'vocab.html';
+    overlay.innerHTML =
+      '<div style="background:white;border-radius:16px;padding:28px 24px;max-width:380px;width:100%;direction:rtl;text-align:center;box-shadow:0 8px 32px rgba(0,0,0,0.25)">' +
+        '<div style="font-size:2.5em;margin-bottom:6px">🎉</div>' +
+        '<div style="font-size:1.15em;font-weight:bold;margin-bottom:10px;color:#065f46">סיימת להקליט הכל!</div>' +
+        '<div style="font-size:0.92em;color:#6b7280;margin-bottom:20px;line-height:1.5">אפשר להמשיך ולתקן הקלטות, או להיכנס לאפליקציה ולשחק בקטגוריה.</div>' +
+        '<div style="display:flex;flex-direction:column;gap:10px">' +
+          '<button data-c="review" style="padding:12px 18px;background:linear-gradient(135deg,#7c3aed,#5b21b6);color:white;border:none;border-radius:10px;cursor:pointer;font-weight:bold;font-size:0.95em">▶ השמע את כל המילים מההתחלה לבדיקה</button>' +
+          '<a href="' + url + '" target="_blank" rel="noopener" data-c="play" style="padding:12px 18px;background:linear-gradient(135deg,#0d9488,#0891b2);color:white;text-decoration:none;border-radius:10px;font-weight:bold;font-size:0.95em">🎮 לשחק בקטגוריה</a>' +
+          '<button data-c="stay" style="padding:10px 18px;background:white;color:#6b7280;border:2px solid #e5e7eb;border-radius:10px;cursor:pointer;font-size:0.9em">להמשיך לתקן</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(overlay);
+    function close() { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); }
+    overlay.addEventListener('click', function(e) { if (e.target === overlay) close(); });
+    var stayBtn = overlay.querySelector('[data-c="stay"]');
+    if (stayBtn) stayBtn.onclick = close;
+    var reviewBtn = overlay.querySelector('[data-c="review"]');
+    if (reviewBtn) reviewBtn.onclick = function() { close(); _startSequencePlay(); };
+    var playA = overlay.querySelector('[data-c="play"]');
+    if (playA) playA.addEventListener('click', function() { setTimeout(close, 100); });
+  }
+
+  function _confirmOverwrite(rowEl, wordKey, btn, onRecord) {
+    var overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.55);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(3px)';
+    overlay.innerHTML =
+      '<div style="background:white;border-radius:16px;padding:24px 22px;max-width:380px;width:100%;direction:rtl;text-align:center;box-shadow:0 8px 32px rgba(0,0,0,0.25)">' +
+        '<div style="font-size:1.05em;font-weight:bold;margin-bottom:8px;color:#0d9488">🎤 כבר יש הקלטה למילה זו</div>' +
+        '<div style="font-size:0.9em;color:#6b7280;margin-bottom:18px;line-height:1.5">מה תרצה לעשות?</div>' +
+        '<div style="display:flex;flex-direction:column;gap:10px">' +
+          '<button data-c="listen" style="padding:12px 18px;background:#eff6ff;color:#2563eb;border:2px solid #2563eb;border-radius:10px;cursor:pointer;font-weight:bold;font-size:0.95em">▶️ השמע את הקיימת</button>' +
+          '<button data-c="record" style="padding:12px 18px;background:#dc2626;color:white;border:none;border-radius:10px;cursor:pointer;font-weight:bold;font-size:0.95em">🎤 הקלט מחדש (יחליף את הקיימת)</button>' +
+          '<button data-c="cancel" style="padding:10px 18px;background:white;color:#6b7280;border:2px solid #e5e7eb;border-radius:10px;cursor:pointer;font-size:0.9em">ביטול</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(overlay);
+    function close() { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); }
+    overlay.addEventListener('click', function(e) { if (e.target === overlay) close(); });
+    overlay.querySelectorAll('button[data-c]').forEach(function(b) {
+      b.onclick = function() {
+        var c = b.getAttribute('data-c');
+        close();
+        if (c === 'listen') openPlayerPanel(rowEl, wordKey);
+        else if (c === 'record') onRecord();
+      };
+    });
+  }
+
+  // ---- Recorder ----
+  var REC = null; // { rec, chunks, stream, panelEl, startedAt, pausedMs, lastPauseAt, cancelled, rowEl }
+
+  function pickMime() {
+    var cands = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/ogg', 'audio/mp4'];
+    if (!window.MediaRecorder || !MediaRecorder.isTypeSupported) return '';
+    for (var i = 0; i < cands.length; i++) if (MediaRecorder.isTypeSupported(cands[i])) return cands[i];
+    return '';
+  }
+
+  function fmtMs(ms) {
+    var s = Math.max(0, Math.floor(ms / 1000));
+    var mm = Math.floor(s / 60); var ss = s % 60;
+    return mm + ':' + (ss < 10 ? '0' + ss : ss);
+  }
+
+  // Reverted persistent-stream cache after Amitai 10:50 reported doubled audio;
+  // simple pending flag prevents concurrent startup races instead.
+  var _recPending = false;
+  var _micRetried = false;  // one-shot auto-retry guard for NotReadableError (mic busy)
+  var _activeMicStream = null;  // last acquired mic stream, force-released before each new attempt
+  // Native recording bridge (Android app, window.AndroidRec). When present we record
+  // via Android's MediaRecorder instead of getUserMedia, which fails (NotReadableError)
+  // on some device WebViews. Amitai 2026-05-24. Browser users are unaffected.
+  var NATIVE_REC = !!(window.AndroidRec && window.AndroidRec.startRecording);
+  var NREC = null;
+  function _showMicPermissionHelp(err, retryFn) {
+    var old = document.getElementById('mic-permission-help');
+    if (old && old.parentNode) old.parentNode.removeChild(old);
+    var code = (err && (err.name || err.message)) ? String(err.name || err.message) : '';
+    var helpUrl = location.href;  // same url used by the copy/open actions below
+    // Detect the Android WebView wrapper (the app). Default WebView UA contains "; wv".
+    // In newer APKs window.AndroidRec.openExternalUrl opens the same page in the
+    // real browser, so this prompt can offer a direct site button instead of only
+    // a copy-link fallback. (Amitai 2026-05-25.)
+    var isApp = navigator.userAgent.indexOf('; wv') !== -1;
+    // NotReadableError/AbortError = the OS granted the mic but couldn't START it
+    // (something else is holding it: media playback, a call, another recorder).
+    // This is NOT a permission problem, so we show a "mic busy" message and never
+    // offer a "go to website" route. (Amitai 2026-05-24, screenshot showed
+    // NotReadableError while media was playing.)
+    var isBusy = code && /NotReadable|Abort|NotFound|Overconstrained/i.test(code);
+    var overlay = document.createElement('div');
+    overlay.id = 'mic-permission-help';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,0.62);z-index:10000;display:flex;align-items:center;justify-content:center;padding:18px;direction:rtl;backdrop-filter:blur(4px)';
+    overlay.innerHTML =
+      '<div style="background:white;border-radius:18px;padding:22px;max-width:430px;width:100%;box-shadow:0 14px 46px rgba(0,0,0,0.30);text-align:right">' +
+        '<div style="font-size:2em;text-align:center;margin-bottom:8px">🎤</div>' +
+        '<div style="font-size:1.12em;font-weight:900;color:#dc2626;text-align:center;margin-bottom:10px">' + (isBusy ? 'המיקרופון תפוס כרגע' : (isApp ? 'צריך הרשאת מיקרופון' : 'המיקרופון לא מאושר בדפדפן')) + '</div>' +
+        '<div style="font-size:0.92em;color:#475569;line-height:1.7;margin-bottom:14px">' +
+          (isBusy
+            ? 'נראה שמשהו אחר משתמש כרגע במיקרופון (ניגון, שיחה, או אפליקציה אחרת).<br>' +
+              'עצור אותו, ולחץ ׳נסה שוב׳ — ההקלטה תמיד נשארת כאן, בלי שום אתר.'
+            : (isApp
+              ? 'כדי להקליט באפליקציה צריך לאשר מיקרופון לאפליקציה.<br>' +
+                'אפשר גם לפתוח את אותו דף באתר עצמו בדפדפן ולהקליט משם.'
+              : 'כדי להקליט צריך לאשר גישה למיקרופון לאתר <b>iseemath.co</b>.<br>' +
+                'אם כבר לחצת בעבר על חסימה, צריך לפתוח את הרשאות האתר בדפדפן ולאשר מיקרופון.')) +
+          (code ? '<br><span style="font-size:0.82em;color:#94a3b8">קוד: ' + code.replace(/[&<>"']/g, function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}) + '</span>' : '') +
+        '</div>' +
+        (isBusy ? '' :
+        '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:10px 12px;color:#475569;font-size:0.86em;line-height:1.6;margin-bottom:14px">' +
+          (isApp
+            ? 'אפשר להמשיך גם באתר עצמו: פתחו את הדף בדפדפן, ואז אשרו הרשאת מיקרופון לאתר אם תתבקשו.'
+            : 'באייפון: לחצו על סמל המנעול/AA בשורת הכתובת → הגדרות אתר → מיקרופון → אפשר.<br>' +
+              'באנדרואיד: לחצו על המנעול בשורת הכתובת → הרשאות → מיקרופון → אפשר.') +
+        '</div>') +
+        (isBusy ? '' :
+        '<button data-mic-help="open" type="button" style="display:block;width:100%;text-align:center;padding:13px 18px;background:linear-gradient(135deg,#0d9488,#0891b2);color:white;border:none;border-radius:12px;font-family:inherit;font-weight:900;font-size:1.05em;text-decoration:none;cursor:pointer;box-shadow:0 5px 18px rgba(13,148,136,0.32);margin-bottom:10px">🌐 פתח את האתר בדפדפן</button>') +
+        '<div style="display:flex;gap:9px;justify-content:center;flex-wrap:wrap">' +
+          '<button data-mic-help="retry" style="padding:11px 18px;background:linear-gradient(135deg,#0d9488,#0891b2);color:white;border:none;border-radius:11px;font-family:inherit;font-weight:900;cursor:pointer">נסה שוב</button>' +
+          '<button data-mic-help="copy" style="padding:10px 16px;background:#eff6ff;color:#2563eb;border:1.5px solid #2563eb;border-radius:11px;font-family:inherit;font-weight:800;cursor:pointer">העתק קישור</button>' +
+          '<button data-mic-help="close" style="padding:10px 16px;background:white;color:#64748b;border:2px solid #e2e8f0;border-radius:11px;font-family:inherit;font-weight:700;cursor:pointer">סגור</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(overlay);
+    function close() { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); }
+    overlay.querySelector('[data-mic-help="close"]').onclick = close;
+    overlay.querySelector('[data-mic-help="retry"]').onclick = function() { close(); if (retryFn) retryFn(); };
+    var openBtn = overlay.querySelector('[data-mic-help="open"]');
+    if (openBtn) openBtn.onclick = function() {
+      var url = location.href;
+      if (window.AndroidRec && window.AndroidRec.openExternalUrl) {
+        try { window.AndroidRec.openExternalUrl(url); return; } catch (_) {}
+      }
+      try {
+        var w = window.open(url, '_blank', 'noopener');
+        if (!w) location.href = url;
+      } catch (_) {
+        location.href = url;
+      }
+    };
+    overlay.querySelector('[data-mic-help="copy"]').onclick = function() {
+      var url = location.href;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(url).then(function() { showToast('הקישור הועתק ✓'); });
+      } else {
+        showToast(url, 5000);
+      }
+    };
+  }
+  // ---- Native recording path (Android app via window.AndroidRec) ----
+  function _nrecCleanupUI(ctx) {
+    if (!ctx) return;
+    if (ctx.tick) clearInterval(ctx.tick);
+    if (ctx.cdIvl) clearInterval(ctx.cdIvl);
+    if (ctx.panel && ctx.panel.parentNode) ctx.panel.parentNode.removeChild(ctx.panel);
+    if (ctx.btn) ctx.btn.classList.remove('recording');
+    if (ctx.rowEl) ctx.rowEl.classList.remove('row-recording');
+    document.body.classList.remove('recording');
+    if (ctx.stopBubble && ctx.stopBubble.parentNode) ctx.stopBubble.parentNode.removeChild(ctx.stopBubble);
+    if (ctx.btn && ctx.btnOrigText != null) ctx.btn.textContent = ctx.btnOrigText;
+    if (ctx.btn && ctx.btnOrigTitle != null) ctx.btn.title = ctx.btnOrigTitle;
+  }
+
+  function openNativeRecPanel(rowEl, wordKey, btn) {
+    if (REC || NREC || _recPending) return;
+    if (SEQ_PLAY) _stopSequencePlay();
+    closePlayerPanel();
+    try { document.querySelectorAll('audio').forEach(function(a) { try { a.pause(); } catch (_) {} }); } catch (_) {}
+
+    var panel = document.createElement('div');
+    panel.className = 'panel recording';
+    panel.innerHTML =
+      '<span class="ap-time" data-time>0:00</span>' +
+      '<span style="font-size:0.75em;color:#9ca3af">/ 0:30</span>' +
+      '<span style="flex:1"></span>' +
+      '<button type="button" class="ap-btn" data-a="cancel" title="בטל">✕</button>';
+    rowEl.parentNode.insertBefore(panel, rowEl.nextSibling);
+    btn.classList.add('recording');
+    rowEl.classList.add('row-recording');
+    document.body.classList.add('recording');
+    document.querySelectorAll('.rerec-nudge').forEach(function(n) { n.remove(); });
+
+    var stopBubble = document.createElement('button');
+    stopBubble.type = 'button';
+    stopBubble.className = 'stop-rec-nudge';
+    stopBubble.textContent = 'סיים הקלטה';
+    rowEl.appendChild(stopBubble);
+    var _btnOrigText = btn.textContent, _btnOrigTitle = btn.title;
+    btn.textContent = '⏹'; btn.title = 'סיים הקלטה';
+
+    NREC = { rowEl: rowEl, wordKey: wordKey, btn: btn, panel: panel, stopBubble: stopBubble,
+             startedAt: 0, tick: null, cdIvl: null, countingDown: true, started: false, cancelled: false,
+             btnOrigText: _btnOrigText, btnOrigTitle: _btnOrigTitle };
+
+    var timeEl = panel.querySelector('[data-time]');
+    var cancelBtn = panel.querySelector('[data-a="cancel"]');
+    var MAX_MS = 30000;
+
+    function startTick() {
+      NREC.startedAt = Date.now();
+      NREC.tick = setInterval(function() {
+        if (!NREC) return;
+        var e = Date.now() - NREC.startedAt;
+        timeEl.textContent = fmtMs(e);
+        if (e >= MAX_MS) { stopNative(); showToast('הגבלה של 30 שניות'); return; }
+        if (e >= MAX_MS - 3000) timeEl.style.color = '#dc2626';
+      }, 200);
+    }
+    function stopNative() {
+      if (!NREC) return;
+      if (NREC.countingDown || !NREC.started) { cancelNative(); return; }
+      if (NREC.tick) { clearInterval(NREC.tick); NREC.tick = null; }
+      try { window.AndroidRec.stopRecording(); } catch (_) {}
+      // UI stays until __onNativeRecComplete fires; show uploading hint
+      timeEl.textContent = '…';
+    }
+    function cancelNative() {
+      if (!NREC) return;
+      NREC.cancelled = true;
+      try { window.AndroidRec.cancelRecording(); } catch (_) {}
+      _nrecCleanupUI(NREC);
+      NREC = null;
+    }
+    stopBubble.onclick = function(e) { e.stopPropagation(); stopNative(); };
+    cancelBtn.onclick = cancelNative;
+    NREC.stop = stopNative;  // lets the ⏹ rec-button (rec-btn handler) stop the native recording
+
+    // 3-2-1 countdown, then start native recording.
+    panel.classList.add('countdown');
+    var steps = ['שלוש', 'שתיים', 'אחת', 'תקליט!']; var idx = 0;
+    timeEl.textContent = steps[0]; timeEl.classList.add('cd-text');
+    NREC.cdIvl = setInterval(function() {
+      idx++;
+      if (!NREC || NREC.cancelled) { clearInterval(NREC && NREC.cdIvl); return; }
+      if (idx < steps.length) { timeEl.textContent = steps[idx]; return; }
+      clearInterval(NREC.cdIvl); NREC.cdIvl = null;
+      NREC.countingDown = false;
+      panel.classList.remove('countdown'); timeEl.classList.remove('cd-text');
+      try { window.AndroidRec.startRecording(); NREC.started = true; startTick(); }
+      catch (e) { var c = NREC; _nrecCleanupUI(c); NREC = null;
+        _showMicPermissionHelp({ name: 'native_start_failed' }, function() { openNativeRecPanel(rowEl, wordKey, btn); }); }
+    }, 250);
+  }
+
+  function openRecPanel(rowEl, wordKey, btn, attempt) {
+    if (REC || NREC || _recPending) return;
+    // In the Android app, record natively (the WebView getUserMedia path fails with
+    // NotReadableError on some devices). Browser users keep the getUserMedia path.
+    if (NATIVE_REC) return openNativeRecPanel(rowEl, wordKey, btn);
+    if (!navigator.mediaDevices || !window.MediaRecorder) {
+      alert('הדפדפן שלך לא תומך בהקלטה.');
+      return;
+    }
+    if (SEQ_PLAY) _stopSequencePlay();
+    closePlayerPanel();  // avoid two panels stacked on the same row
+    // Pause any in-app audio so the app never competes with itself for the mic
+    // (a playing <audio> can cause NotReadableError on getUserMedia). Amitai 2026-05-24.
+    try { document.querySelectorAll('audio').forEach(function(a) { try { a.pause(); } catch (_) {} }); } catch (_) {}
+    // Force-release any mic stream still held from a previous attempt that didn't
+    // clean up — otherwise the next getUserMedia hits NotReadableError ("busy").
+    // Amitai 2026-05-24: first press grabs the mic, gets stuck, next press = busy.
+    if (_activeMicStream) {
+      try { _activeMicStream.getTracks().forEach(function(t) { t.stop(); }); } catch (_) {}
+      _activeMicStream = null;
+    }
+    _recPending = true;
+    // Attempt 0 uses default audio; on a busy/unreadable mic we retry (attempt 1)
+    // with audio processing disabled — some devices/WebViews can only open the mic
+    // without echo-cancellation/noise-suppression/AGC. Amitai 2026-05-24.
+    var micConstraints = attempt ? { audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } } : { audio: true };
+    navigator.mediaDevices.getUserMedia(micConstraints).then(function(stream) {
+      _recPending = false;
+      _activeMicStream = stream;
+      var mime = pickMime();
+      var opts = mime ? { mimeType: mime } : {};
+      var rec;
+      try { rec = new MediaRecorder(stream, opts); }
+      catch (e) { rec = new MediaRecorder(stream); }
+      var chunks = [];
+      rec.ondataavailable = function(e) { if (e.data && e.data.size) chunks.push(e.data); };
+
+      var panel = document.createElement('div');
+      // .recording tags the panel as active-recording; .countdown adds red
+      // override for the 3-2-1 phase only. Amitai 2026-04-24 17:06.
+      panel.className = 'panel recording';
+      panel.innerHTML =
+        '<button type="button" class="ap-btn" data-a="pause" title="השהה">⏸</button>' +
+        '<span class="ap-time" data-time>0:00</span>' +
+        '<span style="font-size:0.75em;color:#9ca3af">/ 0:30</span>' +
+        '<span style="flex:1"></span>' +
+        '<button type="button" class="ap-btn" data-a="cancel" title="בטל">✕</button>';
+      rowEl.parentNode.insertBefore(panel, rowEl.nextSibling);
+      btn.classList.add('recording');
+      // Whole-row red tint so the tap-target is obvious during recording
+      // (Amitai 2026-04-24 16:44 "לא רק הכפתור… כל המילה נצבעת באדום").
+      rowEl.classList.add('row-recording');
+      // body.recording dims non-active rows during recording (Amitai
+      // 2026-04-25 00:21).
+      document.body.classList.add('recording');
+      // Wipe any stale rerec nudges — they're for "after recording" state.
+      document.querySelectorAll('.rerec-nudge').forEach(function(n) { n.remove(); });
+      document.querySelectorAll('.rec-btn.rerec-emphasize').forEach(function(b) { b.classList.remove('rerec-emphasize'); });
+      // Centered "סיים הקלטה" bubble above this row, clickable to stop the
+      // recording (Amitai 2026-04-25 01:51).
+      var stopBubble = document.createElement('button');
+      stopBubble.type = 'button';
+      stopBubble.className = 'stop-rec-nudge';
+      stopBubble.textContent = 'סיים הקלטה';
+      stopBubble.onclick = function(e) {
+        e.stopPropagation();
+        if (!REC) return;
+        if (REC.countingDown) return; // wait until real-record phase
+        try { REC.rec.stop(); } catch (_) {}
+      };
+      rowEl.appendChild(stopBubble);
+      var _btnOrigText = btn.textContent;
+      var _btnOrigTitle = btn.title;
+      btn.textContent = '⏹';
+      btn.title = 'סיים הקלטה';
+
+      REC = { rec: rec, chunks: chunks, stream: stream, panel: panel, rowEl: rowEl, btn: btn, wordKey: wordKey,
+              startedAt: Date.now(), pausedMs: 0, lastPauseAt: null, cancelled: false,
+              btnOrigText: _btnOrigText, btnOrigTitle: _btnOrigTitle, stopBubble: stopBubble };
+
+      var timeEl = panel.querySelector('[data-time]');
+      var pauseBtn = panel.querySelector('[data-a="pause"]');
+      var cancelBtn = panel.querySelector('[data-a="cancel"]');
+
+      function elapsed() {
+        var b = Date.now() - REC.startedAt - REC.pausedMs;
+        if (REC.lastPauseAt) b -= (Date.now() - REC.lastPauseAt);
+        return b;
+      }
+      var MAX_MS = 30000;
+      function _startRealTick() {
+        REC.tick = setInterval(function() {
+          if (!REC) return;
+          var e = elapsed();
+          timeEl.textContent = fmtMs(e);
+          if (e >= MAX_MS) {
+            try { REC.rec.stop(); } catch (_) {}
+            showToast('הגבלה של 30 שניות');
+            return;
+          }
+          if (e >= MAX_MS - 3000) { timeEl.style.color = '#dc2626'; }
+        }, 200);
+      }
+      // Countdown before real recording (Amitai 2026-04-24 16:58: "3… 2… 1…
+      // תקליט!"). Stops voice clipping on the first frames and gives the
+      // teacher a moment to breathe in. ~250ms per step, ~1s total.
+      REC.countingDown = true;
+      panel.classList.add('countdown');
+      var _shCdSteps = ['שלוש', 'שתיים', 'אחת', 'תקליט!'];
+      var _shCdIdx = 0;
+      timeEl.textContent = _shCdSteps[_shCdIdx];
+      timeEl.classList.add('cd-text');
+      REC.cdIvl = setInterval(function() {
+        _shCdIdx++;
+        if (!REC || REC.cancelled) { clearInterval(REC && REC.cdIvl); return; }
+        if (_shCdIdx < _shCdSteps.length) {
+          timeEl.textContent = _shCdSteps[_shCdIdx];
+          return;
+        }
+        clearInterval(REC.cdIvl);
+        REC.cdIvl = null;
+        REC.countingDown = false;
+        panel.classList.remove('countdown');
+        timeEl.classList.remove('cd-text');
+        REC.startedAt = Date.now();
+        try { rec.start(); } catch (_) {}
+        _startRealTick();
+      }, 250);
+
+      rec.onstop = function() {
+        var r = REC; REC = null;
+        if (r.tick) clearInterval(r.tick);
+        if (r.cdIvl) clearInterval(r.cdIvl);
+        try { r.stream.getTracks().forEach(function(t) { t.stop(); }); } catch (_) {}
+        _activeMicStream = null;
+        if (r.panel && r.panel.parentNode) r.panel.parentNode.removeChild(r.panel);
+        r.btn.classList.remove('recording');
+        if (r.rowEl) r.rowEl.classList.remove('row-recording');
+        document.body.classList.remove('recording');
+        if (r.stopBubble && r.stopBubble.parentNode) r.stopBubble.parentNode.removeChild(r.stopBubble);
+        if (r.btnOrigText != null) r.btn.textContent = r.btnOrigText;
+        if (r.btnOrigTitle != null) r.btn.title = r.btnOrigTitle;
+        if (r.cancelled) return;
+        var blob = new Blob(r.chunks, { type: rec.mimeType || 'audio/webm' });
+        uploadClip(blob, r.wordKey, r.btn, r.rowEl);
+      };
+
+      pauseBtn.onclick = function() {
+        if (!REC) return;
+        if (REC.countingDown) return;
+        if (REC.rec.state === 'recording') {
+          try { REC.rec.pause(); REC.lastPauseAt = Date.now(); pauseBtn.textContent = '▶'; pauseBtn.title = 'המשך'; } catch (_) {}
+        } else if (REC.rec.state === 'paused') {
+          try { REC.rec.resume();
+                if (REC.lastPauseAt) { REC.pausedMs += (Date.now() - REC.lastPauseAt); REC.lastPauseAt = null; }
+                pauseBtn.textContent = '⏸'; pauseBtn.title = 'השהה'; } catch (_) {}
+        }
+      };
+      cancelBtn.onclick = function() {
+        if (!REC) return;
+        REC.cancelled = true;
+        // Cancel during countdown: rec never started — tear down without
+        // calling rec.stop() (would throw). Same pattern as vocab.html.
+        if (REC.countingDown) {
+          if (REC.cdIvl) clearInterval(REC.cdIvl);
+          try { REC.stream.getTracks().forEach(function(t) { t.stop(); }); } catch (_) {}
+          _activeMicStream = null;
+          if (REC.panel && REC.panel.parentNode) REC.panel.parentNode.removeChild(REC.panel);
+          if (REC.btn) REC.btn.classList.remove('recording');
+          if (REC.rowEl) REC.rowEl.classList.remove('row-recording');
+          document.body.classList.remove('recording');
+          if (REC.stopBubble && REC.stopBubble.parentNode) REC.stopBubble.parentNode.removeChild(REC.stopBubble);
+          if (REC.btn && REC.btnOrigText != null) REC.btn.textContent = REC.btnOrigText;
+          if (REC.btn && REC.btnOrigTitle != null) REC.btn.title = REC.btnOrigTitle;
+          REC = null;
+          return;
+        }
+        try { REC.rec.stop(); } catch (_) {}
+      };
+    }).catch(function(err) {
+      _recPending = false;
+      var nm = err && err.name;
+      console.warn('mic error', nm, err, 'attempt', attempt);
+      // Mic busy/unreadable: retry once (attempt 1) with audio processing disabled,
+      // after a short delay — some devices/WebViews only open the mic that way, and
+      // a transient lock often frees up. Stays entirely in-app. Amitai 2026-05-24.
+      if ((nm === 'NotReadableError' || nm === 'AbortError') && !attempt) {
+        setTimeout(function() { openRecPanel(rowEl, wordKey, btn, 1); }, 700);
+        return;
+      }
+      _showMicPermissionHelp(err, function() { openRecPanel(rowEl, wordKey, btn, 0); });
+    });
+  }
+
+  // ---- Player ----
+  var PLAYER = null;
+
+  function closePlayerPanel() {
+    if (!PLAYER) return;
+    try { PLAYER.audio.pause(); } catch (_) {}
+    if (PLAYER.panel && PLAYER.panel.parentNode) PLAYER.panel.parentNode.removeChild(PLAYER.panel);
+    PLAYER = null;
+    document.body.classList.remove('audio-playing');
+  }
+
+  // ---- Continuous-play sequence (teacher-side QA) ----
+  var SEQ_PLAY = null;
+
+  function _startSequencePlay() {
+    _stopSequencePlay();  // idempotent
+    // Stop any single-word player first so we don't stack audio (Amitai
+    // 2026-04-25 00:19 "כל דבר שמפעיל שמע — הנגן הפעיל נעצר").
+    closePlayerPanel();
+    if (REC) { showToast('סיים את ההקלטה קודם'); return; }
+    var rows = [];
+    document.querySelectorAll('.word-row').forEach(function(r) {
+      if (r.querySelector('.play-btn')) rows.push(r);
+    });
+    if (!rows.length) { showToast('אין הקלטות להשמעה רציפה'); return; }
+    SEQ_PLAY = { rows: rows, idx: 0, stopped: false };
+    _renderSeqStopBtn();
+    _seqPlayNext();
+  }
+
+  function _seqPlayNext() {
+    if (!SEQ_PLAY || SEQ_PLAY.stopped) return;
+    if (SEQ_PLAY.idx >= SEQ_PLAY.rows.length) {
+      _stopSequencePlay();
+      showToast('🎉 סיום ההשמעה הרציפה');
+      return;
+    }
+    var row = SEQ_PLAY.rows[SEQ_PLAY.idx];
+    var key = row.getAttribute('data-key');
+    document.querySelectorAll('.word-row.seq-current').forEach(function(r) { r.classList.remove('seq-current'); });
+    row.classList.add('seq-current');
+    try { row.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) {}
+    openPlayerPanel(row, key);
+    setTimeout(function() {
+      if (!PLAYER || !PLAYER.audio || !SEQ_PLAY || SEQ_PLAY.stopped) return;
+      var audio = PLAYER.audio;
+      try { audio.playbackRate = SEQ_SPEED; } catch (_) {}
+      audio.addEventListener('ended', function _onEnd() {
+        try { audio.removeEventListener('ended', _onEnd); } catch (_) {}
+        if (!SEQ_PLAY || SEQ_PLAY.stopped) return;
+        SEQ_PLAY.idx++;
+        setTimeout(_seqPlayNext, 450);
+      });
+    }, 120);
+  }
+
+  // Sequence-playback speed (Amitai 2026-04-25 22:43): 1 → 1.5 → 2 only.
+  var SEQ_SPEED = 1;
+  var _SEQ_SPEED_STEPS = [1, 1.5, 2];
+  function _formatSpeed(s) { return '×' + (Number.isInteger(s) ? s : s.toFixed(1)); }
+
+  function _stopSequencePlay() {
+    if (SEQ_PLAY) SEQ_PLAY.stopped = true;
+    SEQ_PLAY = null;
+    closePlayerPanel();
+    document.querySelectorAll('.word-row.seq-current').forEach(function(r) { r.classList.remove('seq-current'); });
+    // SEQ_SPEED persists across sequences — top toolbar speed-btn owns the
+    // setting now (Amitai 2026-04-26 07:16 "תמיד תוכל בכל מצב לשלוט במהירות").
+    _syncPlayFromCurBtn();
+    setTimeout(_updateJumpToNextBtn, 0);
+  }
+
+  // Single play/stop button at top doubles as the sequence-control affordance
+  // (Amitai 2026-04-26 07:21+07:22: "השמע הכל ברצף" deleted; "מהכפתור הנוכחי"
+  // toggles to 'עצור' while a sequence is active).
+  function _syncPlayFromCurBtn() {
+    var b = document.getElementById('play-from-current-btn');
+    if (!b) return;
+    if (SEQ_PLAY) {
+      b.textContent = '⏹ עצור השמעה רציפה';
+      b.classList.add('is-stop');
+    } else {
+      b.textContent = '▶ נגן רציף מהכפתור הנוכחי';
+      b.classList.remove('is-stop');
+    }
+  }
+
+  function _renderSeqStopBtn() {
+    // Hide the floating "↑ למילה הבאה להקליט" arrow while a sequence plays
+    // (Amitai 2026-04-26 07:19). The top button itself flips to "עצור" via
+    // _syncPlayFromCurBtn (no separate fixed-bottom stop button anymore).
+    _syncPlayFromCurBtn();
+    var jb = document.getElementById('jump-to-next-unrec-btn');
+    if (jb) jb.style.display = 'none';
+  }
+
+  var _silenceCache = {};
+  var _sharedAudioCtx = null;
+  function _audioCtx() {
+    if (!_sharedAudioCtx) {
+      var C = window.AudioContext || window.webkitAudioContext;
+      if (!C) return null;
+      _sharedAudioCtx = new C();
+    }
+    return _sharedAudioCtx;
+  }
+  function _findSpeechStart(buf) {
+    var THRESH = 0.02; var LEAD_MS = 50;
+    var sr = buf.sampleRate;
+    var winSize = Math.max(1, Math.floor(sr * 0.01));
+    var ch0 = buf.getChannelData(0);
+    for (var i = 0; i + winSize <= ch0.length; i += winSize) {
+      var peak = 0;
+      for (var j = 0; j < winSize; j++) {
+        var v = Math.abs(ch0[i + j]);
+        if (v > peak) peak = v;
+      }
+      if (peak >= THRESH) return Math.max(0, i / sr - LEAD_MS / 1000);
+    }
+    return 0;
+  }
+  function _prepareTrimmed(cacheKey, url, onReady) {
+    if (_silenceCache[cacheKey]) { onReady(_silenceCache[cacheKey]); return; }
+    var ctx = _audioCtx();
+    if (!ctx) { onReady({ blobUrl: url, offsetSec: 0 }); return; }
+    fetch(url).then(function(r) { return r.blob(); }).then(function(blob) {
+      var blobUrl = URL.createObjectURL(blob);
+      blob.arrayBuffer().then(function(ab) {
+        ctx.decodeAudioData(ab.slice(0), function(buf) {
+          var off = _findSpeechStart(buf);
+          _silenceCache[cacheKey] = { blobUrl: blobUrl, offsetSec: off };
+          onReady(_silenceCache[cacheKey]);
+        }, function() {
+          _silenceCache[cacheKey] = { blobUrl: blobUrl, offsetSec: 0 };
+          onReady(_silenceCache[cacheKey]);
+        });
+      });
+    }).catch(function() { onReady({ blobUrl: url, offsetSec: 0 }); });
+  }
+
+  // Per-word listen counter — track how many times the teacher has played
+  // the recording in this session. On the 2nd+ listen we nudge them toward
+  // re-recording via a bouncing mic button + speech bubble. Counter resets
+  // when a fresh recording is uploaded for that word. Amitai 2026-04-24 17:00.
+  var _listenCounts = {};
+  function _nudgeRerecord(rowEl) {
+    if (!rowEl) return;
+    var recBtn = rowEl.querySelector('.rec-btn');
+    if (!recBtn) return;
+    // New nudge always supersedes any prior one (on this row or elsewhere).
+    document.querySelectorAll('.rerec-nudge').forEach(function(n) { n.remove(); });
+    document.querySelectorAll('.rec-btn.rerec-emphasize').forEach(function(b) { b.classList.remove('rerec-emphasize'); });
+    // Static enlargement (no bounce) — keep the mic obviously tappable while
+    // the nudge is up (Amitai 2026-04-25 02:00).
+    recBtn.classList.add('rerec-emphasize');
+    var bubble = document.createElement('span');
+    bubble.className = 'rerec-nudge';
+    bubble.textContent = '🎤 הקלט שוב';
+    rowEl.appendChild(bubble);
+    requestAnimationFrame(function() {
+      requestAnimationFrame(function() { bubble.classList.add('show'); });
+    });
+    // Auto-fade after 6s (Amitai 2026-04-25 00:28 "מופיע ל6 שניות ונעלם").
+    // Mic shrinks back to normal when the bubble goes away.
+    setTimeout(function() {
+      bubble.classList.remove('show');
+      setTimeout(function() { if (bubble.parentNode) bubble.parentNode.removeChild(bubble); }, 300);
+      recBtn.classList.remove('rerec-emphasize');
+    }, 6000);
+  }
+  function openPlayerPanel(rowEl, wordKey) {
+    closePlayerPanel();
+    // Don't open player while recording is in progress — keeps one panel per row
+    if (REC) { showToast('סיים את ההקלטה קודם'); return; }
+    // Track listen count; nudge toward re-record on 2nd+ listen (per-lang).
+    var _listenKey = (wordKey || '') + '|' + LANG;
+    _listenCounts[_listenKey] = (_listenCounts[_listenKey] || 0) + 1;
+    if (_listenCounts[_listenKey] >= 2) {
+      setTimeout(function() { _nudgeRerecord(rowEl); }, 250);
+    }
+    var url = '/plonter/api/vocab_share_api.php?action=play&t=' + encodeURIComponent(TOKEN) +
+              '&word_key=' + encodeURIComponent(wordKey) +
+              '&lang=' + encodeURIComponent(LANG) +
+              (IS_GROUP && CURRENT_CAT_OBJ ? '&category=' + encodeURIComponent(CURRENT_CAT_OBJ.name) : '');
+    var panel = document.createElement('div');
+    panel.className = 'player-panel';
+    panel.innerHTML =
+      '<button type="button" class="pp-btn" data-a="toggle" title="השמע">▶</button>' +
+      '<span class="pp-time" data-a="cur">0:00</span>' +
+      '<input type="range" class="pp-seek" data-a="seek" min="0" max="1000" value="0" step="1">' +
+      '<span class="pp-time" data-a="dur">--:--</span>' +
+      '<button type="button" class="pp-btn" data-a="close" title="סגור" style="font-size:1.3em;line-height:1">−</button>';
+    rowEl.parentNode.insertBefore(panel, rowEl.nextSibling);
+
+    var audio = new Audio();
+    audio.preload = 'auto';
+    // Apply current sequence speed from frame-0 so every clip plays at the
+    // chosen rate end-to-end (Amitai 2026-04-25 02:10 "הקצב על כל המילים").
+    try { audio.playbackRate = SEQ_SPEED; } catch (_) {}
+    audio.src = url;
+    audio.play().then(function() { toggleBtn.textContent = '⏸'; }).catch(function() {
+      toggleBtn.textContent = '▶';
+      showToast('לחץ שוב להשמעה');
+    });
+    var trimOffset = 0;
+    var _cacheKey = TOKEN + '|' + LANG + '|' + (IS_GROUP && CURRENT_CAT_OBJ ? CURRENT_CAT_OBJ.name + '|' : '') + wordKey;
+    if (SEQ_PLAY) _prepareTrimmed(_cacheKey, url, function(prep) {
+      // Stop-sequence guard (Amitai 2026-04-27 D): if user pressed stop while
+      // we were async-prepping the trimmed blob, PLAYER has been nulled or
+      // replaced. Bail to avoid ghost-play with no UI panel.
+      if (!PLAYER || PLAYER.audio !== audio) return;
+      trimOffset = prep.offsetSec || 0;
+      audio.pause();
+      audio.src = prep.blobUrl;
+      audio.addEventListener('loadedmetadata', function _trimOnce() {
+        audio.removeEventListener('loadedmetadata', _trimOnce);
+        if (!PLAYER || PLAYER.audio !== audio) return;
+        try { audio.currentTime = trimOffset; } catch (_) {}
+        try { audio.playbackRate = SEQ_SPEED; } catch (_) {}
+        audio.play().then(function() { toggleBtn.textContent = '⏸'; })
+                    .catch(function() {});
+      });
+    });
+
+    var toggleBtn = panel.querySelector('[data-a="toggle"]');
+    var curEl = panel.querySelector('[data-a="cur"]');
+    var durEl = panel.querySelector('[data-a="dur"]');
+    var seekEl = panel.querySelector('[data-a="seek"]');
+    var closeBtn = panel.querySelector('[data-a="close"]');
+    var seeking = false;
+
+    audio.addEventListener('loadedmetadata', function() {
+      if (isFinite(audio.duration) && audio.duration > 0) durEl.textContent = fmtMs(audio.duration * 1000);
+    });
+    audio.addEventListener('timeupdate', function() {
+      if (seeking) return;
+      curEl.textContent = fmtMs(audio.currentTime * 1000);
+      if (isFinite(audio.duration) && audio.duration > 0) {
+        seekEl.value = Math.floor((audio.currentTime / audio.duration) * 1000);
+      }
+    });
+    audio.addEventListener('ended', function() { toggleBtn.textContent = '▶'; });
+    // Lock the rest of the UI while audio is actively playing (Amitai 17:12
+    // "אי אפשר להפעיל כלום כשבודקים הקלטה עד שהניגון נעצר"). Pause/ended
+    // release the lock; the player panel's own controls stay clickable.
+    audio.addEventListener('play',  function() { document.body.classList.add('audio-playing'); });
+    audio.addEventListener('pause', function() { document.body.classList.remove('audio-playing'); });
+    audio.addEventListener('ended', function() { document.body.classList.remove('audio-playing'); });
+
+    toggleBtn.onclick = function() {
+      if (audio.paused) { audio.play().catch(function(){}); toggleBtn.textContent = '⏸'; }
+      else { audio.pause(); toggleBtn.textContent = '▶'; }
+    };
+    seekEl.addEventListener('input', function() {
+      seeking = true;
+      if (isFinite(audio.duration) && audio.duration > 0) {
+        curEl.textContent = fmtMs(audio.duration * parseInt(seekEl.value, 10) / 1000 * 1000);
+      }
+    });
+    seekEl.addEventListener('change', function() {
+      if (isFinite(audio.duration) && audio.duration > 0) {
+        audio.currentTime = audio.duration * parseInt(seekEl.value, 10) / 1000;
+      }
+      seeking = false;
+    });
+    closeBtn.onclick = function() { closePlayerPanel(); };
+
+    PLAYER = { audio: audio, panel: panel, rowEl: rowEl };
+  }
+
+  function uploadClip(blob, wordKey, btn, rowEl) {
+    showToast('מעלה הקלטה…');
+    // Capture pre-upload state so we can decide whether this was a NEW
+    // recording (auto-scroll to next unrecorded word) or an OVERWRITE
+    // for corrections (Amitai 2026-04-25 22:37 — don't yank focus while
+    // the teacher is fixing existing recordings).
+    var _wasOverwrite = !!rowEl.querySelector('.play-btn');
+    var recName = '';
+    try { recName = localStorage.getItem(NAME_KEY) || ''; } catch (_) {}
+    var fd = new FormData();
+    fd.append('share_token', TOKEN);
+    fd.append('word_key', wordKey);
+    fd.append('recorder_name', recName);
+    fd.append('lang', LANG);
+    if (IS_GROUP && CURRENT_CAT_OBJ) fd.append('category', CURRENT_CAT_OBJ.name);
+    fd.append('audio', blob, 'clip.webm');
+    fetch('/plonter/api/vocab_share_api.php?action=upload', { method: 'POST', body: fd })
+      .then(function(r) { return r.json(); })
+      .then(function(j) {
+        if (!j.success) return showToast('שגיאה: ' + (j.error || 'unknown'), 3500);
+        btn.classList.add('done');
+        btn.title = 'הקלט מחדש';
+        // Add ▶ play button if missing — recipient can now verify what they recorded.
+        if (!rowEl.querySelector('.play-btn')) {
+          var playBtn = document.createElement('button');
+          playBtn.className = 'play-btn';
+          playBtn.setAttribute('data-action', 'play');
+          playBtn.title = 'השמע הקלטה';
+          playBtn.textContent = '▶️';
+          playBtn.onclick = function() { openPlayerPanel(rowEl, wordKey); };
+          rowEl.insertBefore(playBtn, btn);
+        }
+        var ownerLabel = recName ? ('הוקלט ע״י ' + recName) : 'הוקלט ע״י לא ידוע';
+        var ownerEl = rowEl.querySelector('.recording-owner');
+        if (!ownerEl) {
+          ownerEl = document.createElement('span');
+          ownerEl.className = 'recording-owner';
+          rowEl.insertBefore(ownerEl, btn);
+        }
+        ownerEl.textContent = ownerLabel;
+        ownerEl.title = ownerLabel;
+        if (!rowEl.querySelector('.has-recording-badge')) {
+          var badge = document.createElement('span');
+          badge.className = 'has-recording-badge';
+          badge.title = 'נשלחה הקלטה';
+          badge.textContent = '✓';
+          rowEl.appendChild(badge);
+        }
+        showToast('✅ הוקלט');
+        delete _silenceCache[TOKEN + '|' + LANG + '|' + (IS_GROUP && CURRENT_CAT_OBJ ? CURRENT_CAT_OBJ.name + '|' : '') + wordKey];
+        // Re-recording means the teacher acted on the nudge (or just did it
+        // naturally); reset their listen counter so we don't nudge again
+        // after a single listen of the NEW recording.
+        _listenCounts[(wordKey || '') + '|' + LANG] = 0;
+        // Mirror the new recording into the in-memory INFO so switching tabs later
+        // still reflects that we've already recorded this word in this language.
+        if (INFO) {
+          if (!INFO.existing_by_lang) INFO.existing_by_lang = { ar: [], he: [] };
+          if (!INFO.existing_by_lang[LANG]) INFO.existing_by_lang[LANG] = [];
+          if (INFO.existing_by_lang[LANG].indexOf(wordKey) === -1) {
+            INFO.existing_by_lang[LANG].push(wordKey);
+          }
+          if (!INFO.existing_names_by_lang) INFO.existing_names_by_lang = { ar: {}, he: {} };
+          if (!INFO.existing_names_by_lang[LANG]) INFO.existing_names_by_lang[LANG] = {};
+          INFO.existing_names_by_lang[LANG][wordKey] = recName || '';
+        }
+        _applyRecButtonStatus(btn, wordKey);
+        _updateProgress();
+        // Show 'הקלט שוב' nudge immediately so the teacher knows the mic is
+        // still the tap-target if they want to redo — no need to wait for them
+        // to listen first. Amitai 2026-04-24 18:23.
+        setTimeout(function() { _nudgeRerecord(rowEl); }, 350);
+        // Encouragement bubble — fires BEFORE the player auto-opens so the
+        // teacher sees it on the main list. Skipped at 100% since the all-done
+        // celebration modal takes over. Amitai 2026-04-24 16:41.
+        var _rowsNow = document.querySelectorAll('.word-row');
+        var _totalEnc = _rowsNow.length;
+        var _doneEnc = 0;
+        _rowsNow.forEach(function(r) { if (r.querySelector('.play-btn')) _doneEnc++; });
+        var _pctEnc = _totalEnc ? Math.round((_doneEnc / _totalEnc) * 100) : 0;
+        if (_doneEnc < _totalEnc) {
+          var _encMsg = _pickEncouragement(_pctEnc, _doneEnc, _totalEnc);
+          if (_encMsg) showEncouragement(_encMsg);
+        }
+        setTimeout(function() { openPlayerPanel(rowEl, wordKey); }, 300);
+        if (!_wasOverwrite) {
+          setTimeout(_scrollToNextUnrecorded, 1400);
+        }
+        setTimeout(_updateJumpToNextBtn, 1500);
+      })
+      .catch(function(e) { showToast('שגיאת רשת: ' + e.message, 3500); });
+  }
+
+  // PRACTICE_SHARE_RESOLVE_20260604 — a content_share (practice) link reuses the
+  // same ?t= param as the recording-share flow. Try the generic content_share_api
+  // FIRST: if the token resolves to a shared item, send the recipient straight
+  // into practice mode (no account needed). Distinguish by error text — only an
+  // unknown token ("לא קיים") falls through to the existing vocab_share recording
+  // flow; an expired/revoked content-share shows a friendly RTL message instead.
+  // If the generic API is unreachable, fall through so recording links still work.
+  (function bootShare() {
+    if (!TOKEN) { loadInfo(); return; }
+    // Share token goes as `t` (never `token`, which the backend reads as the
+    // session token for email-bound shares). Carry the logged-in session as a
+    // Bearer header so the backend can match an email invite to the caller.
+    var _authTok = '';
+    try { _authTok = localStorage.getItem('plonter_auth_token') || ''; } catch (_) {}
+    var _hdrs = {};
+    if (_authTok) _hdrs['Authorization'] = 'Bearer ' + _authTok;
+    fetch('/plonter/api/content_share_api.php?action=resolve_link&t=' + encodeURIComponent(TOKEN), { headers: _hdrs })
+      .then(function(r) { return r.json(); })
+      .then(function(j) {
+        if (j && j.success && j.content) {
+          var c = j.content;
+          var role = j.role || 'view';
+          // SHARE_FIX1_20260606 — route the recipient by content_type. Previously EVERY
+          // non-vocab type fell through to vocab.html, so a lesson/syntax/hindus/text view
+          // link wrongly opened אוצם (Amitai hit this live). Now each type routes to its own
+          // view, carrying &share=<TOKEN>&role=<role> (+title/cid when present) like the
+          // vocab case. NOTE: only vocab_category has a real deep-open-by-title hook today
+          // (vocab.html?cat=). The other types land on their correct view/home in the unified
+          // index — the per-type deep-open-BY-ID inside the core app is deferred (per @6m); the
+          // share/type/cid params are passed so that future core hook can pick the item up.
+          var _q = 'share=' + encodeURIComponent(TOKEN) + '&role=' + encodeURIComponent(role);
+          var _title = (c.title != null && c.title !== '') ? ('&title=' + encodeURIComponent(c.title)) : '';
+          var _cid = (c.id != null && c.id !== '') ? ('&cid=' + encodeURIComponent(c.id)) : '';
+          switch (c.content_type) {
+            case 'vocab_category':
+              // REAL deep-open (unchanged): vocab.html imports the category by title.
+              if (c.title) {
+                location.replace('vocab.html?cat=' + encodeURIComponent(c.title) + '&' + _q);
+              } else {
+                location.replace('vocab.html?' + _q);
+              }
+              return;
+            case 'lesson':
+              // Lessons view (default welcome tab of the unified index). TODO(core-hook):
+              // index.html should consume ?type/cid/share to deep-open the lesson by id in
+              // view mode. (The legacy ?lesson=<code> path uses the lesson share-CODE, not the
+              // content_share token, so it can't reuse this token.) Lands on Plonter, NOT vocab.
+              location.replace('index.html?type=lesson&' + _q + _title + _cid);
+              return;
+            case 'sentence':
+            case 'analysis':
+            case 'verb_analysis':
+              // Syntax app (the main unified index). TODO(core-hook): load this sentence by id in view mode.
+              location.replace('index.html?type=' + encodeURIComponent(c.content_type) + '&' + _q + _title + _cid);
+              return;
+            case 'hindus':
+              // Hindus mode/welcome tab. TODO(core-hook): open this hindus item by id in view mode.
+              location.replace('index.html?type=hindus&' + _q + _title + _cid);
+              return;
+            case 'text':
+            case 'texts':
+              // Texts view. TODO(core-hook): open this text by id in view mode.
+              location.replace('index.html?type=text&' + _q + _title + _cid);
+              return;
+            case 'media':
+              // Future media-store viewer (media (store,id) bridge). TODO(core-hook): media item viewer.
+              location.replace('index.html?type=media&' + _q + _title + _cid);
+              return;
+            default:
+              // Unknown/other type → safe app HOME (the unified index), NEVER vocab.html.
+              location.replace('index.html?' + _q + _title);
+              return;
+          }
+        }
+        // Email-bound invite: not logged in (need_login) or wrong account (mismatch).
+        if (j && j.success && j.valid === false && (j.need_login || j.mismatch)) {
+          _emailShareGate(j);
+          return;
+        }
+        var err = (j && j.error) || '';
+        if (err.indexOf('לא קיים') !== -1) { loadInfo(); return; } // unknown token -> recording flow
+        _practiceShareInvalid(err);                                // known but expired/revoked
+      })
+      .catch(function() { loadInfo(); });
+  })();
+
+  // EMAIL_SHARE_LOGIN_GATE_20260606 — an email-bound content_share requires the
+  // recipient to log in with the invited address. Render the AuthEmail widget
+  // (loaded on demand), prefill the invited email, and on a successful login
+  // reload share.html?t=<token> so bootShare re-resolves with the new session.
+  function _loadAuthWidget(cb) {
+    if (typeof AuthEmail !== 'undefined') { cb(); return; }
+    var s = document.createElement('script');
+    s.src = 'js/auth_widget.js';
+    s.onload = function() { cb(); };
+    s.onerror = function() { renderError('שגיאה בטעינת מסך ההתחברות. נסו שוב מאוחר יותר.'); };
+    document.head.appendChild(s);
+  }
+
+  function _emailShareGate(j) {
+    var inviteEmail = j.invite_email || '';
+    var mismatch = !!j.mismatch;
+    var title = j.title || '';
+    var intro = mismatch
+      ? '<p style="color:#b91c1c;font-weight:600">' + escapeHtml(j.message || ('ההזמנה מיועדת ל-' + inviteEmail + ', התחבר עם אותה כתובת')) + '</p>' +
+        '<p style="color:#475569;font-size:0.92em">התחבר עם הכתובת <b dir="ltr">' + escapeHtml(inviteEmail) + '</b> כדי לגשת לתוכן.</p>'
+      : '<p style="color:#475569">הוזמנת לתוכן משותף' + (title ? ' — <b>' + escapeHtml(title) + '</b>' : '') + '.</p>' +
+        '<p style="color:#475569;font-size:0.92em">התחבר או הירשם עם הכתובת <b dir="ltr">' + escapeHtml(inviteEmail) + '</b> כדי לגשת אליו.</p>';
+
+    main.innerHTML =
+      '<header><h1>הזמנה לתוכן משותף 📨</h1></header>' +
+      '<div class="card" style="text-align:right">' + intro +
+        (mismatch ? '<button id="email-share-switch" class="btn-primary" style="margin-bottom:8px">התחבר עם כתובת אחרת</button>' : '') +
+        '<div id="email-share-auth"></div>' +
+      '</div>';
+
+    function mountWidget() {
+      _loadAuthWidget(function() {
+        AuthEmail.init({
+          container: '#email-share-auth',
+          apiUrl: '/plonter/api/auth_email.php',
+          title: 'התחברות',
+          onGuest: function() { AuthEmail.showLogin(); },   // no guest path — force login
+          onLogin: function() {
+            // Re-resolve with the new session: reload this page with the token.
+            location.replace('share.html?t=' + encodeURIComponent(TOKEN));
+          }
+        });
+        // Prefill the invited email into the login (and register) field. The
+        // widget may render the field synchronously OR after an async session
+        // check, and re-renders on login<->register, so drive the prefill from
+        // a MutationObserver on the auth container — it fires the moment the
+        // #auth-email field (re)appears.
+        if (inviteEmail) {
+          var _authBox = document.getElementById('email-share-auth');
+          function _prefill() {
+            var f = document.getElementById('auth-email');
+            if (f && f.value !== inviteEmail) { f.value = inviteEmail; }
+          }
+          _prefill();
+          if (_authBox && window.MutationObserver) {
+            new MutationObserver(_prefill).observe(_authBox, { childList: true, subtree: true });
+          }
+        }
+      });
+    }
+
+    if (mismatch) {
+      // Caller is logged in with the wrong account — drop that session first so
+      // they can authenticate as the invitee.
+      var sw = document.getElementById('email-share-switch');
+      if (sw) sw.onclick = function() {
+        try {
+          if (typeof AuthEmail !== 'undefined' && AuthEmail.logout) { AuthEmail.logout(); }
+          else { localStorage.removeItem('plonter_auth_token'); localStorage.removeItem('plonter_auth_token_user'); }
+        } catch (_) {}
+        sw.style.display = 'none';
+        mountWidget();
+      };
+    } else {
+      mountWidget();
+    }
+  }
+
+  function _practiceShareInvalid(err) {
+    if (!main) return;
+    main.innerHTML = '<div dir="rtl" style="max-width:420px;margin:48px auto;padding:24px;background:#fff;border-radius:16px;text-align:center;font-family:inherit;box-shadow:0 8px 30px rgba(0,0,0,0.12)">' +
+      '<div style="font-size:2.4em">🔒</div>' +
+      '<h2 style="color:#0d9488;margin:8px 0">הקישור אינו זמין</h2>' +
+      '<p style="color:#475569">' + (err || 'הקישור לתרגול בוטל או שפג תוקפו.') + '</p>' +
+      '<a href="vocab.html" style="display:inline-block;margin-top:10px;padding:11px 18px;background:#0d9488;color:#fff;border-radius:10px;text-decoration:none;font-weight:bold">לאתר פלונטר</a>' +
+      '</div>';
+  }
+
+  // ===== INPAGE_SHARE_DIALOG_20260524 =====
+  // In-page port of vocab.html's share-link ("give others access to record")
+  // dialog so it opens as an overlay ON share.html — no navigation to
+  // vocab.html (which flashed the home screen first; Amitai 2026-05-24).
+  // Ported from the live vocab.html openShareLinkDialog / createShareLink /
+  // refreshShareTokensList family. Adaptations: owner token from
+  // localStorage.plonter_auth_token; category from INFO.category / CATEGORY_NAME;
+  // words from INFO.words; share.html showToast; PROGRAMMATIC wiring (share.html
+  // script is an IIFE, so inline onclick handlers would not resolve).
+  var _shareDialogCat = '';
+  var _activeTokenForDialogCat = null;
+  var _lastShareUrl = '';
+  var _lastShareCat = '';
+  var _skipActiveLinkConfirm = false;
+
+  function _ownerAuthToken() {
+    try { return localStorage.getItem('plonter_auth_token') || ''; } catch (_) { return ''; }
+  }
+  function _shareBaseUrl() {
+    return location.origin + location.pathname.replace(/[^\/]*$/, '');
+  }
+  function _shareWordsForCurrentCat() {
+    var ws = (INFO && INFO.words) ? INFO.words : [];
+    return ws.map(function(w) { return { arabic: w.arabic || '', form: w.form || '', hebrew: w.hebrew || '' }; });
+  }
+  function _shareEsc(s) {
+    return String(s).replace(/[&<>"]/g, function(c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; });
+  }
+
+  function openShareLinkDialog(catNameArg) {
+    var catName = catNameArg || (INFO && INFO.category) || CATEGORY_NAME || '';
+    if (!catName) { showToast('לא נמצאה קטגוריה'); return; }
+    var token = _ownerAuthToken();
+    if (!token) { showToast('יש להתחבר כדי לייצר קישור שיתוף'); return; }
+    _shareDialogCat = catName;
+    var overlay = document.getElementById('share-link-overlay');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'share-link-overlay';
+      overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:100000;backdrop-filter:blur(4px);display:none';
+      overlay.onclick = function(e) { if (e.target === overlay) closeShareLinkDialog(); };
+      overlay.innerHTML =
+        '<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:white;border-radius:16px;padding:24px;max-width:480px;width:92%;max-height:88vh;overflow-y:auto;direction:rtl;text-align:right">' +
+          '<button id="share-close-btn" type="button" style="position:absolute;top:12px;left:12px;background:none;border:none;font-size:1.3em;cursor:pointer;color:#6b7280">✕</button>' +
+          '<h3 style="color:#7c3aed;margin:0 0 14px;font-size:1.15em">🎤 קישור להקלטה שיתופית</h3>' +
+          '<div style="font-size:0.9em;color:#6b7280;line-height:1.55;margin-bottom:14px">מי שייכנס לקישור יוכל להקליט את המילים בקטגוריה <span id="share-link-cat" style="color:#0d9488;font-weight:bold"></span>. ההקלטות נשמרות אצלך.</div>' +
+          '<div id="share-link-existing-active" style="display:none;margin-bottom:14px;padding:10px 12px;background:#dcfce7;border:1.5px solid #16a34a;border-radius:10px">' +
+            '<div style="font-size:0.85em;color:#166534;margin-bottom:6px;font-weight:bold">✅ יש כבר קישור פעיל לקטגוריה זו:</div>' +
+            '<div id="share-link-existing-url" style="font-family:monospace;font-size:0.78em;background:white;padding:6px 8px;border-radius:6px;direction:ltr;text-align:left;word-break:break-all;margin-bottom:8px"></div>' +
+            '<div style="font-size:0.75em;color:#6b7280;margin-bottom:8px" id="share-link-existing-meta"></div>' +
+            '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
+              '<button id="share-link-existing-copy" type="button" style="padding:6px 12px;background:#16a34a;color:white;border:none;border-radius:6px;cursor:pointer;font-size:0.85em;font-weight:bold">📋 השתמש בקיים</button>' +
+              '<button id="share-link-existing-wa" type="button" style="padding:6px 12px;background:#dcfce7;color:#15803d;border:1px solid #15803d;border-radius:6px;cursor:pointer;font-size:0.85em">💬 וואטסאפ</button>' +
+            '</div>' +
+          '</div>' +
+          '<div style="margin-bottom:12px"><label style="font-weight:bold;display:block;margin-bottom:6px">תוקף הקישור</label>' +
+            '<div id="share-ttl-choices" style="display:flex;gap:8px;flex-wrap:wrap">' +
+              '<label class="ttl-choice"><input type="radio" name="share-ttl" value="1"> שעה</label>' +
+              '<label class="ttl-choice"><input type="radio" name="share-ttl" value="24" checked> יממה</label>' +
+              '<label class="ttl-choice"><input type="radio" name="share-ttl" value="168"> שבוע</label>' +
+              '<label class="ttl-choice"><input type="radio" name="share-ttl" value="720"> חודש</label>' +
+            '</div>' +
+          '</div>' +
+          '<button id="share-create-btn" type="button" style="padding:10px 24px;background:#7c3aed;color:white;border:none;border-radius:10px;cursor:pointer;font-weight:bold;font-size:0.95em;width:100%">🎤 צור קישור הקלטה</button>' +
+          '<div id="share-link-result" style="display:none;margin-top:14px;padding:12px;background:#f5f3ff;border:1.5px solid #ddd6fe;border-radius:10px">' +
+            '<div style="font-size:0.85em;color:#6b7280;margin-bottom:6px">קישור מוכן — שתפו אותו:</div>' +
+            '<div id="share-link-url" style="background:white;padding:10px;border-radius:6px;word-break:break-all;font-family:monospace;font-size:0.85em;margin-bottom:10px;direction:ltr;text-align:left"></div>' +
+            '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+              '<button id="share-result-copy" type="button" style="padding:8px 14px;background:#7c3aed;color:white;border:none;border-radius:8px;cursor:pointer;font-weight:bold;font-size:0.9em">📋 העתק</button>' +
+              '<button id="share-result-wa" type="button" style="padding:8px 14px;background:#25D366;color:white;border:none;border-radius:8px;cursor:pointer;font-weight:bold;font-size:0.9em">💬 שלח בוואטסאפ</button>' +
+            '</div>' +
+            '<div style="font-size:0.8em;color:#6b7280;margin-top:8px" id="share-link-expires"></div>' +
+          '</div>' +
+          '<div style="margin-top:16px;padding-top:14px;border-top:1px solid #e5e7eb">' +
+            '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">' +
+              '<span style="font-weight:bold;color:#4b5563;font-size:0.9em">🗂 קישורים קיימים</span>' +
+              '<button id="share-refresh-btn" type="button" style="background:none;border:none;color:#7c3aed;cursor:pointer;font-size:0.85em">🔄 רענן</button>' +
+            '</div>' +
+            '<div id="share-tokens-list" style="max-height:220px;overflow-y:auto;font-size:0.85em"></div>' +
+          '</div>' +
+        '</div>';
+      document.body.appendChild(overlay);
+      var style = document.createElement('style');
+      style.textContent = '.ttl-choice{display:inline-flex;align-items:center;gap:4px;padding:6px 10px;border:2px solid #e5e7eb;border-radius:8px;cursor:pointer;font-size:0.9em} .ttl-choice input{margin-left:4px}';
+      document.head.appendChild(style);
+      // Wire static buttons once (programmatic — share.html is an IIFE so inline onclick won't resolve).
+      document.getElementById('share-close-btn').onclick = closeShareLinkDialog;
+      document.getElementById('share-create-btn').onclick = createShareLink;
+      document.getElementById('share-result-copy').onclick = copyShareUrl;
+      document.getElementById('share-result-wa').onclick = shareOnWhatsApp;
+      document.getElementById('share-refresh-btn').onclick = refreshShareTokensList;
+      // Delegated wiring for the dynamic existing-tokens list (rebuilt each refresh).
+      document.getElementById('share-tokens-list').addEventListener('click', function(e) {
+        var b = (e.target && e.target.closest) ? e.target.closest('button[data-act]') : null;
+        if (!b) return;
+        var act = b.getAttribute('data-act');
+        var tok = b.getAttribute('data-tok') || '';
+        var cat = b.getAttribute('data-cat') || '';
+        if (act === 'copy') _copyTokenUrl(tok);
+        else if (act === 'wa') _shareTokenOnWhatsApp(tok, cat);
+        else if (act === 'revoke') _revokeShareToken(tok);
+      });
+    }
+    document.getElementById('share-link-cat').textContent = catName;
+    document.getElementById('share-link-result').style.display = 'none';
+    _skipActiveLinkConfirm = false;
+    overlay.style.display = 'block';
+    refreshShareTokensList();
+  }
+
+  function closeShareLinkDialog() {
+    var overlay = document.getElementById('share-link-overlay');
+    if (overlay) overlay.style.display = 'none';
+  }
+
+  function _renderActiveShareLinkBox() {
+    var box = document.getElementById('share-link-existing-active');
+    if (!box) return;
+    if (!_activeTokenForDialogCat) { box.style.display = 'none'; return; }
+    var t = _activeTokenForDialogCat;
+    var url = _shareBaseUrl() + 'share.html?t=' + t.token;
+    var exp = new Date(t.expires_at * 1000).toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    document.getElementById('share-link-existing-url').textContent = url;
+    var metaPrefix = '';
+    if (t.owner_name && t.is_mine === false) metaPrefix = 'מאת: ' + t.owner_name + ' · ';
+    document.getElementById('share-link-existing-meta').textContent = metaPrefix + 'פג תוקף: ' + exp;
+    box.style.display = 'block';
+    document.getElementById('share-link-existing-copy').onclick = function() {
+      navigator.clipboard.writeText(url).then(function() { showToast('הקישור הועתק ✓'); });
+    };
+    document.getElementById('share-link-existing-wa').onclick = function() {
+      var safeCat = String(t.category || '').replace(/"/g, '');
+      var msg = 'שלום! הכינותי קטגוריית מילים' + (safeCat ? ' ("' + safeCat + '")' : '') + ' ואשמח אם תקליט/י את ההגייה: ' + url;
+      window.open('https://wa.me/?text=' + encodeURIComponent(msg), '_blank', 'noopener');
+    };
+  }
+
+  function refreshShareTokensList() {
+    var listEl = document.getElementById('share-tokens-list');
+    if (!listEl) return;
+    listEl.innerHTML = '<div style="color:#6b7280">טוען...</div>';
+    _activeTokenForDialogCat = null;
+    _renderActiveShareLinkBox();
+    var token = _ownerAuthToken();
+    if (!token) { listEl.innerHTML = '<div style="color:#dc2626">לא מחובר</div>'; return; }
+    var dialogCat = (document.getElementById('share-link-cat') || {}).textContent || '';
+    // share.html lists the owner's own tokens (no BUILTIN_CATEGORIES here, so
+    // the communal list_tokens_for_category path isn't used); filtered by cat below.
+    fetch('/plonter/api/vocab_share_api.php?action=list_tokens', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token }
+    }).then(function(r) { return r.json(); }).then(function(j) {
+      if (!j.success) { listEl.innerHTML = '<div style="color:#dc2626">' + (j.error || 'שגיאה') + '</div>'; return; }
+      if (!j.items || !j.items.length) {
+        listEl.innerHTML = '<div style="color:#6b7280;text-align:center;padding:12px">אין קישורים פעילים</div>';
+        return;
+      }
+      var matches = j.items.filter(function(t) {
+        return !t.revoked && !t.expired && String(t.category) === String(dialogCat);
+      });
+      if (matches.length) {
+        matches.sort(function(a, b) { return (b.expires_at || 0) - (a.expires_at || 0); });
+        _activeTokenForDialogCat = matches[0];
+        _renderActiveShareLinkBox();
+      }
+      var surfacedToken = _activeTokenForDialogCat ? _activeTokenForDialogCat.token : null;
+      var filteredItems = surfacedToken
+        ? j.items.filter(function(t) { return t.token !== surfacedToken; })
+        : j.items;
+      if (filteredItems.length === 0 && surfacedToken) {
+        listEl.innerHTML = '<div style="font-size:0.85em;color:#9ca3af;text-align:center;padding:8px">אין קישורים נוספים מעבר למוצג למעלה</div>';
+        return;
+      }
+      var html = '';
+      filteredItems.forEach(function(t) {
+        var status = t.revoked ? '🚫 בוטל' : (t.expired ? '⏰ פג תוקף' : '✅ פעיל');
+        var statusColor = t.revoked || t.expired ? '#9ca3af' : '#059669';
+        var exp = new Date(t.expires_at * 1000).toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+        var lastUsed = t.last_used_at ? new Date(t.last_used_at * 1000).toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit' }) : '—';
+        var safeCat = _shareEsc(t.category);
+        var safeTok = _shareEsc(t.token);
+        var revokeBtn = (!t.revoked && !t.expired)
+          ? '<button type="button" data-act="revoke" data-tok="' + safeTok + '" style="padding:4px 8px;background:#fef2f2;color:#dc2626;border:1px solid #dc2626;border-radius:6px;cursor:pointer;font-size:0.8em">🚫 בטל</button>'
+          : '';
+        html += '<div style="padding:8px;border:1px solid #e5e7eb;border-radius:8px;margin-bottom:6px;' + (t.revoked || t.expired ? 'opacity:0.65;' : '') + '">' +
+          '<div style="display:flex;justify-content:space-between;gap:6px;align-items:center">' +
+            '<span style="font-weight:bold;color:#0d9488">' + safeCat + '</span>' +
+            '<span style="color:' + statusColor + ';font-size:0.85em">' + status + '</span>' +
+          '</div>' +
+          '<div style="font-size:0.8em;color:#6b7280;margin-top:3px">פג: ' + exp + ' · שימוש אחרון: ' + lastUsed + '</div>' +
+          (!t.revoked && !t.expired ? '<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">' +
+            '<button type="button" data-act="copy" data-tok="' + safeTok + '" style="padding:4px 8px;background:#eff6ff;color:#2563eb;border:1px solid #2563eb;border-radius:6px;cursor:pointer;font-size:0.8em">📋 העתק</button>' +
+            '<button type="button" data-act="wa" data-tok="' + safeTok + '" data-cat="' + safeCat + '" style="padding:4px 8px;background:#dcfce7;color:#15803d;border:1px solid #15803d;border-radius:6px;cursor:pointer;font-size:0.8em">💬 וואטסאפ</button>' +
+            revokeBtn +
+          '</div>' : '') +
+        '</div>';
+      });
+      listEl.innerHTML = html;
+    }).catch(function(e) { listEl.innerHTML = '<div style="color:#dc2626">שגיאת רשת</div>'; });
+  }
+
+  function _copyTokenUrl(tok) {
+    var url = _shareBaseUrl() + 'share.html?t=' + tok;
+    navigator.clipboard.writeText(url).then(function() { showToast('הקישור הועתק ✓'); });
+  }
+  function _openTokenUrl(tok) {
+    window.open(_shareBaseUrl() + 'share.html?t=' + tok, '_blank', 'noopener');
+  }
+  function _shareTokenOnWhatsApp(tok, catName) {
+    var url = _shareBaseUrl() + 'share.html?t=' + tok;
+    var nameTxt = catName ? ' ("' + catName + '")' : '';
+    var msg = 'שלום! הכינותי קטגוריית מילים' + nameTxt + ' ואשמח אם תקליט/י את ההגייה: ' + url;
+    window.open('https://wa.me/?text=' + encodeURIComponent(msg), '_blank', 'noopener');
+  }
+  function _revokeShareToken(tok) {
+    if (!confirm('לבטל את הקישור? אי אפשר לשחזר.')) return;
+    var token = _ownerAuthToken();
+    fetch('/plonter/api/vocab_share_api.php?action=revoke', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+      body: JSON.stringify({ token: tok })
+    }).then(function(r) { return r.json(); }).then(function(j) {
+      if (!j.success) { alert('שגיאה: ' + (j.error || '')); return; }
+      showToast('הקישור בוטל ✓');
+      refreshShareTokensList();
+    });
+  }
+
+  function createShareLink() {
+    // If an active link already exists for this category, confirm before creating another.
+    if (_activeTokenForDialogCat && !_skipActiveLinkConfirm) {
+      var ta = _activeTokenForDialogCat;
+      var aurl = _shareBaseUrl() + 'share.html?t=' + ta.token;
+      var cmsg = 'יש כבר קישור פעיל לקטגוריה זו:\n' + aurl + '\n\nליצור קישור חדש בכל זאת?\n(הקיים יישאר פעיל גם אם תיצור חדש; אפשר לבטל אותו ידנית מהרשימה למטה.)';
+      if (!confirm(cmsg)) {
+        navigator.clipboard.writeText(aurl).then(function() { showToast('הועתק הקישור הקיים ✓'); });
+        return;
+      }
+      _skipActiveLinkConfirm = true;
+      try { createShareLink(); } finally { _skipActiveLinkConfirm = false; }
+      return;
+    }
+    var btn = document.getElementById('share-create-btn');
+    var catName = _shareDialogCat || (INFO && INFO.category) || CATEGORY_NAME || '';
+    var token = _ownerAuthToken();
+    var ttlEl = document.querySelector('input[name="share-ttl"]:checked');
+    var ttlHours = ttlEl ? parseInt(ttlEl.value, 10) : 24;
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ יוצר...'; }
+    var body = { category: catName, ttl_hours: ttlHours, words: _shareWordsForCurrentCat() };
+    fetch('/plonter/api/vocab_share_api.php?action=create_token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+      body: JSON.stringify(body)
+    }).then(function(r) { return r.json(); }).then(function(j) {
+      if (btn) { btn.disabled = false; btn.textContent = '🎤 צור קישור הקלטה'; }
+      if (!j.success) { alert('שגיאה: ' + (j.error || 'unknown')); return; }
+      var fullUrl = _shareBaseUrl() + j.url;
+      _lastShareUrl = fullUrl;
+      _lastShareCat = catName || '';
+      document.getElementById('share-link-url').textContent = fullUrl;
+      document.getElementById('share-link-result').style.display = 'block';
+      var exp = new Date(j.expires_at * 1000);
+      document.getElementById('share-link-expires').textContent = 'פג תוקף: ' + exp.toLocaleString('he-IL') + ' · ' + j.word_count + ' מילים';
+      refreshShareTokensList();
+    }).catch(function(e) {
+      if (btn) { btn.disabled = false; btn.textContent = '🎤 צור קישור הקלטה'; }
+      alert('שגיאת רשת: ' + e.message);
+    });
+  }
+
+  function copyShareUrl() {
+    if (!_lastShareUrl) return;
+    navigator.clipboard.writeText(_lastShareUrl).then(function() { showToast('הקישור הועתק ✓'); });
+  }
+  function shareOnWhatsApp() {
+    if (!_lastShareUrl) return;
+    var catTxt = _lastShareCat ? ' ("' + _lastShareCat + '")' : '';
+    var msg = 'שלום! הכינותי קטגוריית מילים' + catTxt + ' ואשמח אם תקליט/י את ההגייה: ' + _lastShareUrl;
+    window.open('https://wa.me/?text=' + encodeURIComponent(msg), '_blank');
+  }
+  function openShareUrl() {
+    if (!_lastShareUrl) return;
+    window.open(_lastShareUrl, '_blank', 'noopener');
+  }
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl"><head><meta charset="utf-8"><title>valency harness</title>
+<link rel="stylesheet" href="css/style.css"></head>
+<body>
+<div id="box" style="width:380px"></div>
+<script src="js/dictionary.js"></script>
+<script>
+  window.__render = function(entries){
+    var c = document.getElementById('box');
+    c.innerHTML = '';
+    Dictionary.renderMilsonEntries(c, entries);
+  };
+</script>
+</body></html>

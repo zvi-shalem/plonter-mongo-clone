@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120" role="img" aria-label="Plonter logo">
+  <defs>
+    <linearGradient id="plogoBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0d9488"/>
+      <stop offset="100%" stop-color="#0891b2"/>
+    </linearGradient>
+    <linearGradient id="plogoInner" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.14"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect x="6" y="6" width="108" height="108" rx="24" ry="24" fill="url(#plogoBg)"/>
+  <rect x="6" y="6" width="108" height="55" rx="24" ry="24" fill="url(#plogoInner)"/>
+  <text x="60" y="92"
+        font-family="'Amiri', 'Scheherazade New', 'Noto Naskh Arabic', 'Arabic Typesetting', 'Traditional Arabic', serif"
+        font-size="96"
+        font-weight="700"
+        fill="#ffffff"
+        text-anchor="middle"
+        paint-order="stroke"
+        stroke="rgba(255,255,255,0.15)"
+        stroke-width="1"
+        direction="rtl">ض</text>
+</svg>

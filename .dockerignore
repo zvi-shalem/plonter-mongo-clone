@@ -1,0 +1,46 @@
+# .dockerignore for the Plonter MongoDB clone container.
+#
+# WHY IT LIVES AT THE REPO ROOT (not in deploy/): Docker only honors the
+# .dockerignore at the *build context* root. The Render blueprint + the documented
+# build command both use the repo root as context, so this file MUST sit here to
+# (a) keep the real MONGO_URI secret out of every build, and (b) trim the large
+# repo down to just what the image needs. A companion reference copy is kept at
+# deploy/dockerignore.reference for discoverability.
+#
+# Strategy: exclude everything, then re-include only the paths the Dockerfile COPYs,
+# then re-exclude secrets/data that live inside those paths.
+
+# 1) Exclude everything by default.
+*
+
+# 2) Re-include exactly what the image needs.
+!api/
+!mongo_adapter/
+!vendor/
+!composer.json
+!composer.lock
+!sharing/content_api.php
+!sharing/content_share_api.php
+!sharing/auth_common.php
+!media_api.php
+!clone/
+!deploy/
+
+# 3) Re-exclude secrets, real data, and junk that may sit inside the re-included dirs.
+# Secret connection string — must NEVER enter the build context / image.
+.mongo_uri
+**/.mongo_uri
+# SQLite leftovers (app now uses MongoDB) — do not ship real data.
+**/*.db
+# Locally-stored media blobs (real content; warehouse data lives in Mongo/host fs).
+api/vocab_audio_blobs/
+# The clone must NOT carry its own api/ (empty DBs that could wipe real data) or tests.
+clone/api/
+clone/tests/
+# VCS / OS / editor noise.
+**/.git
+**/.gitignore
+**/.DS_Store
+**/._*
+**/node_modules/
+**/*.log

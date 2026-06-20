@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <script>
+    /* === Clone API guard (2026-05-28) ===
+       This page is a CLONE deployed under the SAME ORIGIN as the live
+       /plonter/ site, so it SHARES localStorage (incl. plonter_vocab_v2 and
+       plonter_auth_token). It must NEVER hit /plonter/clone/api/ (the clone's
+       api/ has empty DBs) — a failed/guest auth there can wipe the real
+       user's vocab. App code already targets the absolute /plonter/api/; this
+       is a belt-and-braces net that re-routes any stray same-origin api/ call
+       to the LIVE backend. No-op for calls already under /plonter/api/. */
+    (function () {
+        var LIVE = '/plonter/api/';
+        function fix(u) {
+            try {
+                if (typeof u !== 'string' || !u) return u;
+                var abs = new URL(u, document.baseURI);
+                if (abs.origin !== location.origin) return u;             // cross-origin: leave
+                if (abs.pathname.indexOf('/plonter/api/') === 0) return u; // already live: leave
+                var m = abs.pathname.match(/\/api\/(.*)$/);
+                if (!m) return u;                                          // not an api call
+                return LIVE + m[1] + abs.search + abs.hash;
+            } catch (e) { return u; }
+        }
+        if (window.fetch) {
+            var _f = window.fetch;
+            window.fetch = function (input, init) {
+                if (typeof input === 'string') return _f.call(this, fix(input), init);
+                return _f.call(this, input, init);
+            };
+        }
+        var _o = XMLHttpRequest.prototype.open;
+        XMLHttpRequest.prototype.open = function (method, url) {
+            try { arguments[1] = fix(url); } catch (e) {}
+            return _o.apply(this, arguments);
+        };
+    })();
+    </script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>פלונטר v4 — כלי לימוד ערבית</title>
+    <link rel="icon" type="image/png" href="plonter-logo.png?v=10">
+    <link rel="apple-touch-icon" href="plonter-logo.png?v=10">
+    <link rel="stylesheet" href="css/style.css?v=4.18.30">
+    <script>
+    // Cache diagnostic: deploy sets DEPLOY_RAND, ?rand=X in URL compares
+    window.DEPLOY_RAND = 8979;
+    (function() {
+        var p = new URLSearchParams(location.search).get('rand');
+        if (p !== null) {
+            document.addEventListener('DOMContentLoaded', function() {
+                var match = String(p) === String(window.DEPLOY_RAND);
+                var el = document.createElement('div');
+                el.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;padding:12px;text-align:center;font-size:1.1em;font-weight:bold;direction:ltr;font-family:monospace;';
+                if (match) {
+                    el.style.background = '#d1fae5'; el.style.color = '#065f46';
+                    el.textContent = 'CACHE OK — rand=' + p + ' matches deployed version';
+                } else {
+                    el.style.background = '#fee2e2'; el.style.color = '#991b1b';
+                    el.textContent = 'CACHE STALE — URL rand=' + p + ' but deployed rand=' + window.DEPLOY_RAND;
+                }
+                el.onclick = function() { el.remove(); };
+                document.body.prepend(el);
+                setTimeout(function() { if (el && el.parentNode) el.remove(); }, 7000);
+            });
+        }
+    })();
+    </script>
+    <style>
+    /* Unified-clone width fix (Amitai 2026-06-04): the extra אוצ"מ tab pushed the
+       welcome tab row past the viewport, forcing annoying left-right page scroll.
+       Keep the page EXACTLY screen-width; let the tab groups wrap on narrow
+       screens instead of overflowing. */
+    html, body { overflow-x: hidden !important; max-width: 100%; }
+    #welcome-screen, .welcome-screen, .welcome-container { box-sizing: border-box; }
+
+    /* DESKTOP CENTERING (Amitai 2026-06-05): site felt too WIDE on desktop after the
+       2026-06-04 width fix forced .welcome-container to max-width:100%. Restore the
+       ORIGINAL centered container (max-width:900px, value from clone/css/style.css:120)
+       on desktop only; mobile stays full-width/stretched as Amitai likes. */
+    @media (min-width: 681px) {
+        #welcome-screen .welcome-container { max-width: 900px; margin: 0 auto; }
+    }
+
+    /* NAV GROUPING (Amitai + @6m 2026-06-05): visual division of the welcome tabs into
+       PRIMARY (שיעורים) / games / tools / warehouse(מדיה). Pure layout — every
+       switchWelcomeTab handler + tab id is preserved. */
+    #mode-tabs { align-items: flex-start; }
+    .nav-group { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+    .nav-group-label { font-size: 0.72em; font-weight: bold; color: #64748b; letter-spacing: 0.5px; }
+    .nav-group-tiles { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
+    /* light vertical divider between groups (desktop only) */
+    @media (min-width: 681px) {
+        .nav-group + .nav-group { border-right: 1px solid #e2e8f0; padding-right: 14px; }
+    }
+
+    /* LOGIN BUTTON emphasis (Amitai UX#2 2026-06-05): the JS-rendered 'התחבר' button is
+       enlarged + a helper line added. Styled here so js/auth.js stays untouched. The
+       :has() rule only fires when logged-out (login button present), so the helper text
+       disappears once the user is signed in. */
+    #auth-status { text-align: right; }
+    #auth-status #auth-login-btn {
+        padding: 12px 24px !important;
+        font-size: 1.05em !important;
+        border-radius: 10px !important;
+        background: rgba(255,255,255,0.28) !important;
+        border: 2px solid rgba(255,255,255,0.75) !important;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+    }
+    #auth-status:has(#auth-login-btn)::after {
+        content: 'התחבר כדי לשמור את השיעורים בענן';
+        display: block;
+        margin-top: 6px;
+        font-size: 0.74em;
+        font-weight: 600;
+        line-height: 1.25;
+        color: rgba(255,255,255,0.95);
+        max-width: 170px;
+        margin-right: 0;
+        margin-left: auto;
+    }
+
+    /* PHONE ONLY (Amitai 2026-06-04): let tab groups + their buttons wrap to fit the
+       screen with no horizontal scroll. Buttons are now nested inside .nav-group, so
+       target them by descendant (was: direct child #mode-tabs > .btn). */
+    @media (max-width: 680px) {
+        #mode-tabs { flex-wrap: wrap !important; width: 100%; max-width: 100%; box-sizing: border-box; gap: 10px !important; }
+        .nav-group-tiles { gap: 6px !important; }
+        #mode-tabs .btn {
+            min-width: 0 !important;
+            max-width: none !important;
+            padding: 10px 12px !important;
+            font-size: 0.95em !important;
+            border-radius: 10px !important;
+        }
+        /* Keep the enlarged login compact on phones so it doesn't squeeze the
+           centered logo/title (would clip 'פלונטר' under overflow-x:hidden). */
+        #auth-status #auth-login-btn { padding: 9px 14px !important; font-size: 0.95em !important; }
+        #auth-status:has(#auth-login-btn)::after { font-size: 0.62em; max-width: 96px; }
+    }
+    </style>
+</head>
+<body>
+    <!-- Login Screen (AuthOTP widget renders here) — hidden by default, shown on demand -->
+    <div id="auth-container" style="min-height:100vh;display:none;align-items:center;justify-content:center;background:#f8fafc"></div>
+
+    <!-- Welcome Screen (open for everyone) -->
+    <div id="welcome-screen" class="welcome-screen">
+        <div class="welcome-container">
+            <header class="welcome-header">
+                <div style="display:flex;justify-content:space-between;align-items:flex-start">
+                    <!-- Login moved to the RIGHT edge (RTL-first) + enlarged (Amitai UX#2 2026-06-05) -->
+                    <div id="auth-status" style="flex:1;text-align:right;padding:8px"></div>
+                    <div style="text-align:center;flex:2">
+                        <div style="display:flex;align-items:center;justify-content:center;gap:14px">
+                            <img src="plonter-logo.png?v=10" alt="Plonter logo" width="96" height="96" style="flex-shrink:0;filter:drop-shadow(0 4px 12px rgba(74,108,247,0.35))">
+                            <h1 style="position:relative;display:inline-block;margin:0">פלונטר <span style="position:absolute;top:-6px;left:-32px;background:#f59e0b;color:white;font-size:0.3em;padding:2px 6px;border-radius:4px;font-weight:bold;transform:rotate(-12deg)">BETA</span></h1>
+                        </div>
+                        <p class="subtitle">מערכת מסייעת להוראת שפה</p>
+                        <div class="version-badge">v4.11.0</div>
+                        <div class="credit-line">© <span>אמתי שלם</span></div>
+                    </div>
+                    <div style="flex:1"></div>
+                </div>
+            </header>
+
+            <div class="search-section">
+                <div class="search-row">
+                    <input type="text" id="stage-search" class="search-input" placeholder="חפש שלב או משפט...">
+                    <button id="stage-heb2ar-btn" class="search-heb2ar-btn" title="המר עברית לערבית (Ctrl+G)">א←ع</button>
+                    <button id="open-dict-btn" class="search-heb2ar-btn" style="background:#0891b2" onclick="Dictionary.openStandalone()" title="מילון">📖</button>
+                </div>
+            </div>
+
+            <!-- Mode toggle tabs — grouped: PRIMARY(שיעורים) | משחקים | כלים | מחסן(מדיה)
+                 (Amitai + @6m 2026-06-05). All tab ids + switchWelcomeTab handlers preserved;
+                 only layout/visual grouping changed. -->
+            <div id="mode-tabs" style="display:flex;justify-content:center;gap:14px;margin-bottom:16px;flex-wrap:wrap">
+
+                <!-- PRIMARY: שיעורים (emphasized) -->
+                <div class="nav-group nav-group-primary">
+                    <div class="nav-group-label" style="visibility:hidden" aria-hidden="true">.</div>
+                    <button id="tab-lessons" class="btn" style="padding:14px 26px;font-size:1.15em;font-weight:bold;border-radius:12px;border:2px solid #2563eb;background:#2563eb;color:white;cursor:pointer;box-shadow:0 4px 14px rgba(37,99,235,0.40);white-space:nowrap" onclick="switchWelcomeTab('lessons')">שיעורים</button>
+                </div>
+
+                <!-- GAMES GROUP: אוצ"מ + הברות והטעמה -->
+                <div class="nav-group">
+                    <div class="nav-group-label">משחקים</div>
+                    <div class="nav-group-tiles">
+                        <a id="tab-vocab" href="#vocab" onclick="openVocabView(event)" class="btn" style="padding:11px 16px;font-size:1em;font-weight:bold;border-radius:10px;border:2px solid #0d9488;background:white;color:#0d9488;cursor:pointer;text-decoration:none;text-align:center;white-space:nowrap">אוצ"מ</a>
+                        <!-- HATAAMA launcher (coordinated with @tmoonot): opens the standalone app in a NEW TAB, zero auth dependency, NOT an iframe -->
+                        <a id="tab-hataama" href="#hataama" onclick="openHataamaView(event)" class="btn" style="display:inline-flex;align-items:center;gap:6px;padding:11px 16px;font-size:1em;font-weight:bold;border-radius:10px;border:2px solid #14b8a6;background:white;color:#0f766e;cursor:pointer;text-decoration:none;text-align:center;white-space:nowrap" title="הברות והטעמה">הברות והטעמה</a>
+                        <!-- MAPS launcher (coordinated with @WBT_AsafBoss_bot): in-page iframe overlay of the ME-geography maps app (mirror of #hataama/#vocab) -->
+                        <a id="tab-maps" href="#maps" onclick="openMapsView(event)" class="btn" style="display:inline-flex;align-items:center;gap:6px;padding:11px 16px;font-size:1em;font-weight:bold;border-radius:10px;border:2px solid #0891b2;background:white;color:#0e7490;cursor:pointer;text-decoration:none;text-align:center;white-space:nowrap" title="מפות — גאוגרפיה">מפות 🗺️</a>
+                    </div>
+                </div>
+
+                <!-- TOOLS GROUP: ניתוח / הינדוס / טקסטים -->
+                <div class="nav-group">
+                    <div class="nav-group-label">כלים</div>
+                    <div class="nav-group-tiles">
+                        <button id="tab-analysis" class="btn" style="padding:11px 16px;font-size:1em;font-weight:bold;border-radius:10px;border:2px solid #0d9488;background:white;color:#0d9488;cursor:pointer;white-space:nowrap" onclick="switchWelcomeTab('analysis')">ניתוח</button>
+                        <button id="tab-hindus" class="btn" style="padding:11px 16px;font-size:1em;font-weight:bold;border-radius:10px;border:2px solid #0d9488;background:white;color:#0d9488;cursor:pointer;white-space:nowrap" onclick="switchWelcomeTab('hindus')">הינדוס</button>
+                        <button id="tab-texts" class="btn" style="padding:11px 16px;font-size:1em;font-weight:bold;border-radius:10px;border:2px solid #0d9488;background:white;color:#0d9488;cursor:pointer;white-space:nowrap" onclick="switchWelcomeTab('texts')">טקסטים</button>
+                        <button id="tab-tasks" class="btn" style="display:none;padding:11px 16px;font-size:1em;font-weight:bold;border-radius:10px;border:2px solid #0d9488;background:white;color:#0d9488;cursor:pointer;white-space:nowrap" onclick="switchWelcomeTab('tasks')">משימות</button>
+                    </div>
+                </div>
+
+                <!-- WAREHOUSE: מדיה moved to the LEFT edge, marked as a מחסן (Amitai 2026-06-05) -->
+                <div class="nav-group nav-group-warehouse">
+                    <div class="nav-group-label">מחסן</div>
+                    <div class="nav-group-tiles">
+                        <button id="tab-media" class="btn" style="padding:11px 16px;font-size:1em;font-weight:bold;border-radius:10px;border:2px dashed #7c3aed;background:#faf5ff;color:#7c3aed;cursor:pointer;white-space:nowrap" onclick="switchWelcomeTab('media')" title="מחסן המדיה">📦 מדיה</button>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Lessons mode buttons (shown when lessons tab active) -->
+            <div id="lessons-buttons" style="text-align:center;margin-bottom:16px;display:none;gap:8px;justify-content:center;flex-wrap:wrap">
+                <button id="create-lesson-btn" class="btn btn-primary" style="font-size:1em;padding:8px 16px">+ שיעור חדש</button>
+                <button id="sync-lessons-btn" class="btn btn-secondary" style="font-size:1em;padding:8px 16px">☁️ סנכרון</button>
+                <button id="import-lesson-btn" class="btn btn-secondary" style="font-size:1em;padding:8px 16px">📥 ייבוא</button>
+                <a href="https://youtu.be/x7aKUyfGXoA" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:4px;padding:8px 14px;border-radius:8px;background:#ff0000;color:white;text-decoration:none;font-size:0.95em;font-weight:bold;cursor:pointer" title="סרטון הדרכה">▶ סרטון הדרכה</a>
+            </div>
+
+            <!-- Analysis mode buttons -->
+            <div id="analysis-buttons" style="text-align:center;margin-bottom:16px;display:flex;gap:12px;justify-content:center;flex-wrap:wrap;align-items:center">
+                <button id="add-sentence-btn" class="btn btn-primary" style="font-size:1em;padding:8px 16px">+ משפט חדש לניתוח</button>
+                <a href="https://youtu.be/PkevhytZFXk" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:4px;padding:8px 14px;border-radius:8px;background:#ff0000;color:white;text-decoration:none;font-size:0.95em;font-weight:bold;cursor:pointer" title="סרטון הדרכה">▶ סרטון הדרכה</a>
+            </div>
+
+            <!-- Hindus mode buttons (hidden by default) -->
+            <div id="hindus-buttons" style="text-align:center;margin-bottom:16px;display:none;gap:12px;justify-content:center;flex-wrap:wrap;align-items:center">
+                <button id="add-hindus-btn" class="btn btn-primary" style="font-size:1em;padding:8px 16px;background:linear-gradient(135deg,#f59e0b,#d97706)">+ משפט חדש להינדוס</button>
+                <a href="https://www.youtube.com/watch?v=sdP-QG4UzU4" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:4px;padding:8px 14px;border-radius:8px;background:#ff0000;color:white;text-decoration:none;font-size:0.95em;font-weight:bold;cursor:pointer" title="סרטון הדרכה">▶ סרטון הדרכה</a>
+            </div>
+
+            <!-- Texts buttons (hidden by default) -->
+            <div id="texts-buttons" style="display:none;gap:8px;justify-content:center;margin-bottom:12px;flex-wrap:wrap">
+                <button class="btn btn-primary" style="font-size:0.85em" onclick="PlonterTexts.showCreate()">+ הוסף טקסט חדש</button>
+                <a href="https://youtu.be/v2GUoedqWvE" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:4px;padding:8px 14px;border-radius:8px;background:#ff0000;color:white;text-decoration:none;font-size:0.95em;font-weight:bold;cursor:pointer" title="סרטון הדרכה">▶ סרטון הדרכה</a>
+            </div>
+
+            <!-- Texts section -->
+            <div class="texts-section-welcome" style="display:none">
+                <div id="texts-list" class="stages-list"></div>
+            </div>
+
+            <!-- Media section -->
+            <div class="media-section-welcome" style="display:none">
+                <div id="media-section-welcome"></div>
+            </div>
+
+            <!-- Dragon-only tasks section -->
+            <div class="tasks-section-welcome" style="display:none">
+                <div id="tasks-panel-welcome"></div>
+            </div>
+
+            <div class="stages-container">
+                <!-- Analysis sections -->
+                <div class="category-section analysis-section-welcome" id="custom-section" style="display:none">
+                    <h2 class="category-title">משפטים שלי</h2>
+                    <div id="stages-custom" class="stages-list"></div>
+                </div>
+                <div class="category-section analysis-section-welcome">
+                    <h2 class="category-title">חוברת</h2>
+                    <div id="stages-workbook" class="stages-list"></div>
+                </div>
+                <div class="category-section analysis-section-welcome">
+                    <h2 class="category-title">תרגיל אמצע</h2>
+                    <div id="stages-midterm" class="stages-list"></div>
+                </div>
+                <div class="category-section analysis-section-welcome">
+                    <h2 class="category-title">פרסית</h2>
+                    <div id="stages-persian" class="stages-list"></div>
+                </div>
+                <!-- Hindus section -->
+                <div class="category-section hindus-section-welcome" style="display:none">
+                    <h2 class="category-title">הינדוס משפטים</h2>
+                    <div id="stages-hindus" class="stages-list"></div>
+                </div>
+                <!-- Lessons section -->
+                <div class="category-section lessons-section-welcome" style="display:none">
+                    <div id="lessons-list" class="stages-list"></div>
+                    <div style="margin-top:20px">
+                        <h3 style="color:#6b7280;margin-bottom:8px">שיעורים לדוגמה</h3>
+                        <div id="demo-lessons-list" class="stages-list"></div>
+                        <!-- 'الفتوى — הפתוא' link removed 2026-04-19 per Amitai 08:37. -->
+                    </div>
+                </div>
+                <!-- Presentations section removed — merged into lessons -->
+                <!-- Dictionary section -->
+                <div class="category-section dictionary-section-welcome" style="display:none">
+                    <div id="dictionary-welcome-container" style="padding:16px;text-align:center">
+                        <p style="color:#6b7280;margin-bottom:16px">חפש מילה בערבית במילון</p>
+                        <button class="btn btn-primary" style="font-size:1.2em;padding:12px 24px" onclick="Dictionary.openStandalone()">📖 פתח מילון</button>
+                    </div>
+                </div>
+            </div>
+            <footer style="text-align:center;padding:24px 0 8px;color:#9ca3af;font-size:0.8em;direction:rtl">
+                © אמתי שלם
+            </footer>
+        </div>
+    </div>
+
+    <!-- Main Game Screen -->
+    <div id="game-screen" class="game-screen" style="display: none;">
+        <div class="container">
+            <header>
+                <div class="header-row">
+                    <h1>פלונטר</h1>
+                    <div class="header-buttons">
+                        <button id="undo-btn" class="btn btn-secondary" title="ביטול (Ctrl+Z)" style="font-size:1.1em;padding:6px 10px">↩</button>
+                        <button id="redo-btn" class="btn btn-secondary" title="שחזור (Ctrl+Y)" style="font-size:1.1em;padding:6px 10px">↪</button>
+                        <button id="delete-mode-btn" class="btn btn-secondary" title="מצב מחיקה (D)">🗑️ מחק</button>
+                        <button id="back-to-menu-btn" class="btn btn-secondary">חזרה לתפריט</button>
+                    </div>
+                </div>
+                <div class="credit-line">© <span>אמתי שלם</span></div>
+            </header>
+
+            <main>
+                <section class="sentence-section">
+                    <div id="sentence-container" class="sentence-container"></div>
+                </section>
+                <div id="validation-messages" class="validation-messages"></div>
+            </main>
+        </div>
+    </div>
+
+    <!-- Vocab view (אוצ"מ) — merged in-page at one address (index.html#vocab).
+         The אוצ"מ module runs inside an isolated iframe so all its existing
+         functionality is preserved verbatim while living under the index URL. -->
+    <div id="vocab-view" style="display:none;position:fixed;inset:0;z-index:50000;background:#f0fdf4">
+        <iframe id="vocab-frame" title='אוצ"מ — לימוד מילים' style="border:0;width:100%;height:100%;display:block"></iframe>
+    </div>
+    <!-- HATAAMA integrated view (Amitai 2026-06-06: "תשלב את הכתובות" — same address, iframe, not a separate site). embed=1 hides hataama's own chrome. -->
+    <div id="hataama-view" style="display:none;position:fixed;inset:0;z-index:50000;background:#ffffff">
+        <div id="hataama-topbar" style="display:flex;align-items:center;justify-content:space-between;gap:12px;height:78px;padding:0 18px;box-sizing:border-box;background:linear-gradient(135deg,#0d9488 0%,#0891b2 100%);color:#fff;box-shadow:0 4px 16px rgba(13,148,136,0.25);position:relative;z-index:1">
+            <!-- RIGHT (RTL first child): Plonter branding -->
+            <div style="display:flex;align-items:center;gap:12px;min-width:0">
+                <img src="plonter-logo.png?v=10" alt="פלונטר" width="50" height="50" style="flex-shrink:0;filter:drop-shadow(0 3px 10px rgba(0,0,0,0.28))">
+                <div style="text-align:right;line-height:1.15;min-width:0">
+                    <h1 style="position:relative;display:inline-block;margin:0;font-size:1.7em;font-weight:900;letter-spacing:0.02em;text-shadow:0 2px 8px rgba(0,0,0,0.25);line-height:1;color:#fff">פלונטר <span style="position:absolute;top:-7px;left:-30px;background:#f59e0b;color:white;font-size:0.32em;padding:2px 6px;border-radius:4px;font-weight:bold;transform:rotate(-12deg)">BETA</span></h1>
+                    <div style="display:flex;align-items:center;gap:8px;margin-top:3px;flex-wrap:nowrap">
+                        <span class="subtitle" style="font-size:0.78em;opacity:0.92;margin:0">מערכת מסייעת להוראת שפה</span>
+                        <span class="version-badge" style="position:static;display:inline-block;top:auto;left:auto;font-size:0.7em;padding:2px 9px">v4.11.0</span>
+                        <span class="credit-line" style="font-size:0.74em;margin:0;color:#fff">© <span>אמתי שלם</span></span>
+                    </div>
+                </div>
+            </div>
+            <!-- CENTER: login (matches main header login styling; wired to the real PlonterAuth.showLoginDialog) -->
+            <button id="hataama-login-btn" onclick="closeHataamaView(); if(window.PlonterAuth&&PlonterAuth.showLoginDialog){PlonterAuth.showLoginDialog();}" style="flex-shrink:0;padding:10px 20px;border:2px solid rgba(255,255,255,0.75);border-radius:10px;background:rgba(255,255,255,0.22);color:#fff;cursor:pointer;font-size:0.95em;font-weight:bold;box-shadow:0 2px 8px rgba(0,0,0,0.12)">התחבר</button>
+            <!-- FAR-LEFT (RTL last child): back button — still calls closeHataamaView() -->
+            <button onclick="closeHataamaView()" title="חזרה לפלונטר" style="flex-shrink:0;background:rgba(255,255,255,0.18);color:#fff;border:2px solid rgba(255,255,255,0.6);border-radius:10px;padding:9px 16px;font-size:0.95em;font-weight:bold;cursor:pointer">← חזרה</button>
+        </div>
+        <iframe id="hataama-frame" title="הברות והטעמה" allow="microphone; autoplay" style="border:0;width:100%;height:calc(100% - 78px);display:block"></iframe>
+    </div>
+
+    <!-- MAPS integrated view (in-page iframe overlay; coordinated with @WBT_AsafBoss_bot). Mirror of #hataama. -->
+    <div id="maps-view" style="display:none;position:fixed;inset:0;z-index:50000;background:#ffffff">
+        <div id="maps-topbar" style="height:48px;display:flex;align-items:center;justify-content:flex-end;padding:0 12px;background:linear-gradient(135deg,#0d9488,#0891b2)">
+            <button onclick="closeMapsView()" title="חזרה לפלונטר" style="flex-shrink:0;background:rgba(255,255,255,0.18);color:#fff;border:2px solid rgba(255,255,255,0.6);border-radius:10px;padding:9px 16px;font-size:0.95em;font-weight:bold;cursor:pointer">← חזרה</button>
+        </div>
+        <iframe id="maps-frame" title="מפות" allow="fullscreen" style="border:0;width:100%;height:calc(100% - 48px);display:block"></iframe>
+    </div>
+
+    <!-- Details Panel (bottom) -->
+    <div id="details-panel" class="details-panel">
+        <div class="details-panel-content">
+            <div class="details-panel-header">
+                <h3 id="details-panel-title">פרטי חלק דיבר</h3>
+                <button class="close-panel-btn">&times;</button>
+            </div>
+            <div id="details-panel-form" class="details-form"></div>
+            <div class="details-panel-actions">
+                <button id="save-details-btn" class="btn btn-primary">שמור</button>
+                <button class="btn btn-secondary close-panel-btn">ביטול</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="js/word.js?v=4.12.0"></script>
+    <script src="js/partsOfSpeech.js?v=4.12.1"></script>
+    <script src="js/stages.js?v=4.12.14"></script>
+    <script src="js/combinations.js?v=4.15.5"></script>
+    <script src="js/historyManager.js?v=4.18.18"></script>
+    <script src="js/state.js?v=4.15.7"></script>
+    <script src="js/persistence.js?v=4.17.2"></script>
+    <script src="js/messages.js?v=4.12.0"></script>
+    <script src="js/sounds.js?v=4.12.1"></script>
+    <script src="js/renderer.js?v=4.15.5"></script>
+    <script src="js/archSystem.js?v=4.18.19"></script>
+    <script src="js/detailsPanel.js?v=4.15.7"></script>
+    <script src="js/dictionary.js?v=4.17.97"></script>
+    <script src="js/mabaDictionary.js?v=1.0.5"></script>
+    <script src="js/uiFeedback.js?v=1.0.0"></script>
+    <script src="js/annotations.js?v=4.15.81"></script>
+    <script src="js/modals.js?v=4.17.29"></script>
+    <script src="js/modelValidation.js?v=4.12.0"></script>
+    <script src="js/diacriticsKeyboard.js?v=4.18.28"></script>
+    <script src="js/hindusMode.js?v=4.18.4"></script>
+    <script src="js/auth_widget.js?v=4.14.10"></script>
+    <script src="js/auth.js?v=4.17.32"></script>
+    <script src="js/admin.js?v=1.0.15"></script>
+    <script src="js/mediaStorage.js?v=4.21.17"></script>
+    <script src="js/lessons.js?v=4.18.37"></script>
+    <script src="js/texts.js?v=4.17.21"></script>
+    <script src="js/tasksPanel.js?v=4.22.1"></script>
+    <script src="js/contentSync.js?v=1.2.48"></script>
+    <script src="js/adapters/AdapterBase.js?v=0.1.1"></script>
+    <script src="js/adapters/lessonsAdapter.js?v=0.1.0"></script>
+    <script src="js/adapters/analysisAdapter.js?v=0.1.0"></script>
+    <script src="js/adapters/hindusAdapter.js?v=0.1.0"></script>
+    <script src="js/adapters/textsAdapter.js?v=0.1.0"></script>
+    <script src="js/syncBridge.js?v=4.18.18"></script>
+    <script src="js/analysesSync.js?v=4.17.1"></script>
+    <script src="js/hindusSync.js?v=4.17.3"></script>
+    <script src="js/app.js?v=4.17.20"></script>
+    <!-- Generic collaborative sharing — ONE module for ALL content types (2026-06-04) -->
+    <script src="js/contentShare.js?v=0.1.2"></script>
+    <script src="js/selfworkWorksheets.js?v=0.1.0"></script>
+
+    <!-- אוצ"מ in-page route: open vocab inside the index at one address.
+         Deep-links: index.html#vocab  and  index.html?mode=vocab -->
+    <script>
+    (function () {
+        var TITLE_MAIN = 'פלונטר v4 — כלי לימוד ערבית';
+        var TITLE_VOCAB = 'פלונטר — לימוד מילים';
+        var loaded = false;
+
+        function view() { return document.getElementById('vocab-view'); }
+        function frame() { return document.getElementById('vocab-frame'); }
+
+        // Hide every host (Plonter) top-level element while אוצם is open, so the
+        // main site does NOT bleed through behind the vocab view — not at the edges,
+        // not on pinch-zoom. The result reads as ONE full-screen page, not two sites
+        // stacked. (Amitai 2026-06-04: "האתרים לא אמורים להיות אחד על השני".)
+        var _hostHidden = [];
+        function hideHostBehind() {
+            _hostHidden = [];
+            var kids = document.body.children;
+            for (var i = 0; i < kids.length; i++) {
+                var el = kids[i];
+                if (el.id === 'vocab-view') continue;
+                if (el.tagName === 'SCRIPT' || el.tagName === 'STYLE' || el.tagName === 'LINK') continue;
+                if (el.style.display === 'none') continue; // already hidden — leave as-is
+                _hostHidden.push([el, el.style.display]);
+                el.style.display = 'none';
+            }
+        }
+        function restoreHostBehind() {
+            for (var i = 0; i < _hostHidden.length; i++) {
+                _hostHidden[i][0].style.display = _hostHidden[i][1] || '';
+            }
+            _hostHidden = [];
+        }
+
+        function showVocab() {
+            var v = view(), f = frame();
+            if (!v || !f) return;
+            if (!loaded) { f.src = 'vocab.html?v=18'; loaded = true; }
+            v.style.display = 'block';
+            hideHostBehind();
+            document.body.style.overflow = 'hidden';
+            _prevBodyBg = document.body.style.background;
+            document.body.style.background = '#f0fdf4'; // match vocab bg so zoom edges blend
+            document.title = TITLE_VOCAB;
+        }
+
+        var _prevBodyBg = '';
+        function hideVocab() {
+            var v = view();
+            if (v) v.style.display = 'none';
+            restoreHostBehind();
+            document.body.style.overflow = '';
+            document.body.style.background = _prevBodyBg || '';
+            document.title = TITLE_MAIN;
+        }
+
+        function wantsVocab() {
+            if (location.hash === '#vocab') return true;
+            var m = new URLSearchParams(location.search).get('mode');
+            return m === 'vocab';
+        }
+
+        function syncFromUrl() {
+            if (wantsVocab()) showVocab(); else hideVocab();
+        }
+
+        // Tab click / programmatic open. Drives state through the URL so back/forward work.
+        window.openVocabView = function (ev) {
+            if (ev && ev.preventDefault) ev.preventDefault();
+            if (location.hash !== '#vocab') {
+                location.hash = 'vocab';   // triggers hashchange -> syncFromUrl -> showVocab
+            } else {
+                showVocab();
+            }
+        };
+
+        // Called when the embedded vocab app breaks back out to the host (back-link target=_top
+        // navigates the top window to a clean index.html, so this is mostly a programmatic helper).
+        window.closeVocabView = function () {
+            if (location.hash === '#vocab') {
+                history.replaceState('', document.title, location.pathname + location.search);
+            }
+            hideVocab();
+        };
+
+        window.addEventListener('hashchange', syncFromUrl);
+        window.addEventListener('popstate', syncFromUrl);
+
+        // Preload the אוצם iframe in the background shortly after the app loads,
+        // so switching to the vocab tab is INSTANT — no page-load progress bar,
+        // no "navigating to another address" feel (Amitai 2026-06-04).
+        function preloadVocab() {
+            var f = frame();
+            if (f && !loaded) { f.src = 'vocab.html?v=18'; loaded = true; }
+        }
+        function schedulePreload() {
+            if (wantsVocab()) return; // already opening it; normal load path handles it
+            setTimeout(preloadVocab, 1200);
+        }
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', function () { syncFromUrl(); schedulePreload(); });
+        } else {
+            syncFromUrl();
+            schedulePreload();
+        }
+    })();
+    </script>
+
+<script>
+/* HATAAMA integrated-view controller (mirror of vocab #vocab pattern). Self-contained IIFE.
+   Drives state via #hataama hash so browser back/forward work. Does not touch the vocab closure. */
+(function(){
+    var loaded=false,_prevBg='',_prevOverflow='',_wasOpen=false;
+    function v(){return document.getElementById('hataama-view');}
+    function f(){return document.getElementById('hataama-frame');}
+    function show(){var view=v(),fr=f();if(!view||!fr)return;if(!loaded){fr.src='/hataama/?embed=1';loaded=true;}view.style.display='block';_wasOpen=true;_prevOverflow=document.body.style.overflow;document.body.style.overflow='hidden';_prevBg=document.body.style.background;document.body.style.background='#ffffff';}
+    function hide(){var view=v();if(view)view.style.display='none';document.body.style.overflow=_prevOverflow||'';document.body.style.background=_prevBg||'';
+        // Amitai #1305: returning from hataama → highlight the tab he left from
+        if(_wasOpen){_wasOpen=false;if(window._markLaunchReturn)window._markLaunchReturn('tab-hataama');}}
+    function sync(){if(location.hash==='#hataama')show();else hide();}
+    window.openHataamaView=function(ev){if(ev&&ev.preventDefault)ev.preventDefault();if(location.hash!=='#hataama')location.hash='hataama';else show();};
+    window.closeHataamaView=function(){if(location.hash==='#hataama'){history.replaceState('',document.title,location.pathname+location.search);}hide();};
+    window.addEventListener('hashchange',sync);
+    window.addEventListener('popstate',sync);
+    if(document.readyState!=='loading')sync();else document.addEventListener('DOMContentLoaded',sync);
+})();
+/* Amitai #1305 — "where did I come from?" launch-return highlight.
+   Highlights the launch tab a user returns from (hataama) and keeps it until they click
+   another tab/button. No reload happens (iframe overlays), so this is driven by the
+   close/return handler, not sessionStorage. (maps-trivia uses the vocab last-visited card.) */
+(function(){
+    var STYLE='@keyframes launchReturnPulse{0%,100%{box-shadow:0 0 0 3px #f59e0b,0 0 7px rgba(245,158,11,.55);}50%{box-shadow:0 0 0 4px #f59e0b,0 0 18px rgba(245,158,11,.9);}}'
+        +'.btn.launch-return{box-shadow:0 0 0 3px #f59e0b,0 4px 14px rgba(245,158,11,.5)!important;animation:launchReturnPulse 1.5s ease-in-out infinite;}';
+    function injectStyle(){if(document.getElementById('launch-return-style'))return;var s=document.createElement('style');s.id='launch-return-style';s.textContent=STYLE;document.head.appendChild(s);}
+    function clearAll(){var els=document.querySelectorAll('.btn.launch-return');for(var i=0;i<els.length;i++)els[i].classList.remove('launch-return');}
+    window._clearLaunchReturn=clearAll;
+    window._markLaunchReturn=function(id){injectStyle();clearAll();var el=document.getElementById(id);if(el){el.classList.add('launch-return');try{el.scrollIntoView({block:'nearest',inline:'center'});}catch(_){}}};
+    // clicking any tab/button clears the "came from" marker (it re-applies on the next return)
+    document.addEventListener('click',function(e){var b=e.target&&e.target.closest&&e.target.closest('.btn');if(b&&!b.classList.contains('launch-return'))clearAll();},true);
+})();
+</script>
+
+<script>
+/* MAPS integrated-view controller (mirror of #hataama). Self-contained IIFE.
+   Drives state via #maps hash so browser back/forward work. iframe = the ME-geography maps app. */
+(function(){
+    var loaded=false,_prevBg='',_prevOverflow='';
+    function v(){return document.getElementById('maps-view');}
+    function f(){return document.getElementById('maps-frame');}
+    function show(){var view=v(),fr=f();if(!view||!fr)return;if(!loaded){fr.src='maps_app/index.html?embed=1&v=1.1';loaded=true;}view.style.display='block';_prevOverflow=document.body.style.overflow;document.body.style.overflow='hidden';_prevBg=document.body.style.background;document.body.style.background='#ffffff';}
+    function hide(){var view=v();if(view)view.style.display='none';document.body.style.overflow=_prevOverflow||'';document.body.style.background=_prevBg||'';}
+    function sync(){if(location.hash==='#maps')show();else hide();}
+    window.openMapsView=function(ev){if(ev&&ev.preventDefault)ev.preventDefault();if(location.hash!=='#maps')location.hash='maps';else show();};
+    window.closeMapsView=function(){if(location.hash==='#maps'){history.replaceState('',document.title,location.pathname+location.search);}hide();};
+    window.addEventListener('hashchange',sync);
+    window.addEventListener('popstate',sync);
+    // Contract with @WBT_AsafBoss_bot maps app: it postMessages {source:'maps',screen:'home'|'game'}.
+    // Show the Plonter ←חזרה topbar only on the maps home/launcher; hide inside a game (its own chip handles return).
+    // Origin-validated (iframe is same-origin) so stray postMessages can't toggle the chrome.
+    window.addEventListener('message',function(e){
+        if(e.origin!==location.origin)return;
+        var d=e.data;if(!d||d.source!=='maps')return;
+        var bar=document.getElementById('maps-topbar'),fr=f();if(!bar||!fr)return;
+        if(d.screen==='game'){bar.style.display='none';fr.style.height='100%';}
+        else{bar.style.display='flex';fr.style.height='calc(100% - 48px)';}
+    });
+    if(document.readyState!=='loading')sync();else document.addEventListener('DOMContentLoaded',sync);
+})();
+</script>
+    <script src="js/shareView.js?v=4"></script>
+</body>
+</html>

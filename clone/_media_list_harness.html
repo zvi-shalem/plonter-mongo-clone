@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head><meta charset="utf-8"><title>media list harness</title></head>
+<body>
+<div id="dict-results" style="width:380px"></div>
+<script>
+  // ---- Mock auth + backend (no real /plonter/api) ----
+  localStorage.setItem('plonter_auth_token', 'TESTTOKEN');
+  window.PlonterAuth = { getToken: function(){ return 'TESTTOKEN'; }, showLoginDialog: function(){} };
+
+  var SYS = ['יוטיוב','קטעי שמע','תמונות','שיעורים','טוטוריאל'];
+  var FOLDERS = SYS.map(function(n,i){ return {id:i+1, name:n, parent_id:0}; });
+  // lesson folder under שיעורים (id 4)
+  var LESSON_ID = 100;
+  FOLDERS.push({id:LESSON_ID, name:'שיעור בדיקה', parent_id:4});
+
+  var LESSON_ITEMS = [
+    {id:1001, title:'קובץ שמע א', media_type:'audio', url:'https://example.com/a.mp3'},
+    {id:1002, title:'קובץ שמע ב', media_type:'audio', url:'https://example.com/b.mp3'},
+    {id:1003, title:'תמונה ג', media_type:'image', url:'https://example.com/c.jpg'},
+  ];
+
+  window.fetch = function(url, opts){
+    var body = {};
+    try { body = JSON.parse(opts.body); } catch(e){}
+    var action = body.action;
+    var resp = {};
+    if (action === 'list_folders') resp = {folders: FOLDERS};
+    else if (action === 'list_media') resp = {items: (parseInt(body.folder_id)===LESSON_ID) ? LESSON_ITEMS : []};
+    else if (action === 'create_folder') resp = {id: 999};
+    else if (action === 'search') resp = {items: []};
+    else resp = {ok:true};
+    return Promise.resolve({ json: function(){ return Promise.resolve(resp); }, text: function(){ return Promise.resolve(JSON.stringify(resp)); } });
+  };
+</script>
+<script src="js/mediaStorage.js"></script>
+<script>
+  window.__renderLessonTab = function(){
+    var c = document.getElementById('dict-results');
+    MediaStorage.renderDictMediaTab(c, 'שיעור בדיקה');
+  };
+</script>
+</body>
+</html>

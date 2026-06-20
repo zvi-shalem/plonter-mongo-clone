@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "co.iseemath.plontervocab",
+      "sha256_cert_fingerprints": [
+        "E6:2E:AC:B8:37:42:35:8D:29:3F:EE:64:BB:4C:B1:2A:B0:66:11:8D:4D:22:05:18:F9:8B:F5:97:FC:36:81:96"
+      ]
+    }
+  }
+]

@@ -1,0 +1,26 @@
+# Render Blueprint — free Docker web service for the Plonter MongoDB clone.
+# Docs: https://render.com/docs/blueprint-spec
+#
+# Deploy: connect the repo in the Render dashboard ("New > Blueprint") OR keep this
+# file at the repo root path Render scans. The MONGO_URI secret is NOT stored here —
+# it is set in the dashboard after the service is created (sync:false keeps it out
+# of source control). Full steps: see DEPLOY_RENDER.md.
+services:
+  - type: web
+    name: plonter-mongo-clone
+    runtime: docker
+    plan: free
+    # Build context = repo root so the Dockerfile's COPY paths (api/, vendor/, ...) resolve.
+    dockerfilePath: ./deploy/Dockerfile
+    dockerContext: .
+    # Render injects PORT; the container's entrypoint binds Apache to it.
+    healthCheckPath: /plonter/api/content_org_api.php?action=ping
+    autoDeploy: false
+    envVars:
+      # Real Atlas connection string — secret. Placeholder only; set the real value
+      # in the Render dashboard (Environment tab). sync:false => never read from repo.
+      - key: MONGO_URI
+        sync: false
+        # value: mongodb+srv://<user>:<password>@<cluster>/?retryWrites=true&w=majority   # <-- set in dashboard, NOT here
+      - key: MONGO_DB
+        value: plonter

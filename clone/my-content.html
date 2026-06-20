@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<script>
+/* === Clone API guard (2026-05-28) ===
+   This page is a CLONE deployed under the SAME ORIGIN as the live /plonter/
+   site, so it SHARES localStorage (incl. plonter_vocab_v2 and
+   plonter_auth_token). It must NEVER hit /plonter/clone/api/ (the clone's
+   api/ has empty DBs) — a failed/guest auth there can wipe the real user's
+   vocab. App code already targets the absolute /plonter/api/; this is a
+   belt-and-braces net that re-routes any stray same-origin api/ call to the
+   LIVE backend. No-op for calls already under /plonter/api/. */
+(function () {
+    var LIVE = '/plonter/api/';
+    function fix(u) {
+        try {
+            if (typeof u !== 'string' || !u) return u;
+            var abs = new URL(u, document.baseURI);
+            if (abs.origin !== location.origin) return u;             // cross-origin: leave
+            if (abs.pathname.indexOf('/plonter/api/') === 0) return u; // already live: leave
+            var m = abs.pathname.match(/\/api\/(.*)$/);
+            if (!m) return u;                                          // not an api call
+            return LIVE + m[1] + abs.search + abs.hash;
+        } catch (e) { return u; }
+    }
+    if (window.fetch) {
+        var _f = window.fetch;
+        window.fetch = function (input, init) {
+            if (typeof input === 'string') return _f.call(this, fix(input), init);
+            return _f.call(this, input, init);
+        };
+    }
+    var _o = XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.open = function (method, url) {
+        try { arguments[1] = fix(url); } catch (e) {}
+        return _o.apply(this, arguments);
+    };
+})();
+</script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>התוכן שלי — פלונטר</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f0f4f8; color: #1a202c; min-height: 100vh; }
+.header { background: linear-gradient(135deg, #0d9488, #0891b2); color: white; padding: 16px 20px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
+.header h1 { font-size: 20px; font-weight: 600; }
+.header a { color: white; text-decoration: none; font-size: 14px; opacity: 0.8; }
+.header a:hover { opacity: 1; }
+.user-info { font-size: 14px; display: flex; align-items: center; gap: 8px; }
+.guest-banner { background: linear-gradient(135deg, #f59e0b, #d97706); color: white; padding: 10px 20px; font-size: 14px; text-align: center; }
+.toolbar { padding: 12px 20px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.toolbar input { flex: 1; min-width: 200px; padding: 10px 14px; border: 2px solid #e2e8f0; border-radius: 10px; font-size: 15px; }
+.toolbar input:focus { outline: none; border-color: #0d9488; }
+.btn { padding: 10px 18px; border: none; border-radius: 10px; cursor: pointer; font-size: 14px; font-weight: 600; transition: all 0.2s; }
+.btn-primary { background: #0d9488; color: white; }
+.btn-primary:hover { background: #0f766e; }
+.btn-secondary { background: #e2e8f0; color: #475569; }
+.btn-sm { padding: 6px 12px; font-size: 12px; }
+.type-filters { padding: 0 20px 12px; display: flex; gap: 8px; flex-wrap: wrap; }
+.type-pill { padding: 6px 14px; border-radius: 20px; border: 2px solid #e2e8f0; background: white; cursor: pointer; font-size: 13px; font-weight: 500; }
+.type-pill.active { background: #0d9488; color: white; border-color: #0d9488; }
+.content-grid { padding: 0 20px 20px; display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+.content-card { background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,0.08); cursor: pointer; transition: all 0.2s; }
+.content-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.12); transform: translateY(-2px); }
+.content-card-local { background: #fffbeb; border: 1px dashed #f59e0b; }
+.card-color-strip { height: 6px; }
+.card-body { padding: 14px 16px; }
+.card-top-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+.card-type { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; }
+.card-type.analysis { background: #dbeafe; color: #1d4ed8; }
+.card-type.text { background: #dcfce7; color: #15803d; }
+.card-type.vocabulary { background: #fef3c7; color: #b45309; }
+.card-type.lesson { background: #fce7f3; color: #be185d; }
+.card-type.engineering { background: #e0e7ff; color: #4338ca; }
+.card-title { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
+.card-preview { font-size: 13px; color: #64748b; max-height: 40px; overflow: hidden; }
+.card-footer { padding: 8px 16px; border-top: 1px solid #f1f5f9; display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: #94a3b8; }
+.card-local-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 700; background: #fef3c7; color: #92400e; border: 1px dashed #f59e0b; }
+.card-server-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 700; background: #d1fae5; color: #065f46; border: 1px solid #6ee7b7; }
+.modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); z-index: 1000; align-items: center; justify-content: center; }
+.modal-overlay.active { display: flex; }
+.modal { background: white; border-radius: 16px; width: 90%; max-width: 520px; max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
+.modal-header { padding: 16px 20px; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; }
+.modal-header h2 { font-size: 18px; }
+.modal-close { background: none; border: none; font-size: 24px; cursor: pointer; color: #94a3b8; }
+.modal-body { padding: 20px; }
+.modal-footer { padding: 16px 20px; border-top: 1px solid #e2e8f0; display: flex; gap: 10px; }
+.form-group { margin-bottom: 16px; }
+.form-group label { display: block; font-size: 13px; font-weight: 600; color: #475569; margin-bottom: 6px; }
+.form-group input, .form-group textarea, .form-group select { width: 100%; padding: 10px 14px; border: 2px solid #e2e8f0; border-radius: 10px; font-size: 15px; }
+.form-group input:focus, .form-group textarea:focus { outline: none; border-color: #0d9488; }
+.form-group textarea { min-height: 100px; resize: vertical; }
+.color-picker-row { display: flex; gap: 8px; align-items: center; }
+.color-picker-row input[type="color"] { width: 50px; height: 40px; border: 2px solid #e2e8f0; border-radius: 8px; cursor: pointer; padding: 2px; }
+.color-preview { flex: 1; height: 40px; border-radius: 8px; border: 2px solid #e2e8f0; }
+.empty-state { text-align: center; padding: 60px 20px; color: #94a3b8; }
+.empty-state .icon { font-size: 48px; margin-bottom: 12px; }
+.toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%) translateY(100px); background: #1a202c; color: white; padding: 12px 24px; border-radius: 10px; font-size: 14px; z-index: 2000; transition: transform 0.3s; white-space: nowrap; }
+.toast.show { transform: translateX(-50%) translateY(0); }
+.login-prompt { text-align: center; padding: 40px 20px; }
+.login-prompt button { font-size: 1.1em; padding: 14px 32px; }
+@media (max-width: 600px) { .content-grid { grid-template-columns: 1fr; } .header { flex-direction: column; gap: 8px; } }
+</style>
+</head>
+<body>
+<div class="header">
+    <h1>התוכן שלי</h1>
+    <div class="user-info">
+        <span id="userDisplay"></span>
+        <a href="index.html">← חזרה לפלונטר</a>
+    </div>
+</div>
+<div id="guestBanner" class="guest-banner" style="display:none">
+    מצב אורח 👤 · הפריטים שתיצור יישמרו רק בדפדפן הזה. <a href="#" onclick="doLogin()" style="color:white;font-weight:bold">התחברות</a> כדי לשמור בשרת.
+</div>
+<div class="toolbar">
+    <input type="text" id="searchInput" placeholder="חיפוש..." oninput="debounceSearch()">
+    <button class="btn btn-primary" onclick="openCreateModal()">+ חדש</button>
+</div>
+<div class="type-filters">
+    <span class="type-pill active" data-type="" onclick="filterByType(this)">הכל</span>
+    <span class="type-pill" data-type="analysis" onclick="filterByType(this)">תחביר</span>
+    <span class="type-pill" data-type="text" onclick="filterByType(this)">טקסט</span>
+    <span class="type-pill" data-type="vocabulary" onclick="filterByType(this)">אוצר מילים</span>
+    <span class="type-pill" data-type="lesson" onclick="filterByType(this)">שיעור</span>
+    <span class="type-pill" data-type="engineering" onclick="filterByType(this)">הינדוס</span>
+</div>
+<div class="content-grid" id="contentGrid"></div>
+
+<div class="modal-overlay" id="createModal">
+    <div class="modal">
+        <div class="modal-header">
+            <h2 id="modalTitle">פריט חדש</h2>
+            <button class="modal-close" onclick="closeModal('createModal')">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group"><label>סוג</label>
+                <select id="formType">
+                    <option value="analysis">תחביר</option>
+                    <option value="text">טקסט</option>
+                    <option value="vocabulary">אוצר מילים</option>
+                    <option value="lesson">שיעור</option>
+                    <option value="engineering">הינדוס</option>
+                </select>
+            </div>
+            <div class="form-group"><label>כותרת</label>
+                <input type="text" id="formTitle" placeholder="כותרת...">
+            </div>
+            <div class="form-group"><label>תוכן</label>
+                <textarea id="formText" placeholder="תוכן..."></textarea>
+            </div>
+            <div class="form-group"><label>צבע</label>
+                <div class="color-picker-row">
+                    <input type="color" id="formColor" value="#0d9488" onchange="updateColorPreview()">
+                    <div class="color-preview" id="colorPreview" style="background:#0d9488"></div>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-primary" onclick="saveContent()">שמירה</button>
+            <button class="btn btn-secondary" onclick="closeModal('createModal')">ביטול</button>
+            <button class="btn btn-sm" id="deleteBtn" style="display:none;margin-right:auto;background:#fee2e2;color:#dc2626" onclick="deleteContent()">מחיקה</button>
+        </div>
+    </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+var CONTENT_API = '/plonter/api/content_api.php';
+var AUTH_API = '/plonter/api/auth_email.php';
+var TOKEN_KEY = 'plonter_auth_token';
+var LOCAL_KEY = 'plonter_my_content_local';
+var TYPE_LABELS = { analysis: 'תחביר', text: 'טקסט', vocabulary: 'אוצר מילים', lesson: 'שיעור', engineering: 'הינדוס' };
+
+var currentUser = null; // { first_name, last_name, email }
+var currentToken = null;
+var allItems = [];
+var editingId = null;
+var currentTypeFilter = '';
+var searchTimer = null;
+
+function isLoggedIn() { return !!currentToken && !!currentUser; }
+function typeLabel(t) { return TYPE_LABELS[t] || t; }
+function escapeHtml(s) { return s ? String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') : ''; }
+function formatDate(d) { return d ? d.replace('T', ' ').substring(0, 16) : ''; }
+
+function getLocalItems() {
+    try { return JSON.parse(localStorage.getItem(LOCAL_KEY) || '[]'); } catch(e) { return []; }
+}
+function setLocalItems(items) { localStorage.setItem(LOCAL_KEY, JSON.stringify(items)); }
+function addLocalItem(item) { var items = getLocalItems(); items.unshift(item); setLocalItems(items); }
+function removeLocalItem(id) { setLocalItems(getLocalItems().filter(function(x) { return x.id !== id; })); }
+
+async function api(action, body) {
+    var opts = { method: 'POST', headers: { 'Content-Type': 'application/json' } };
+    if (currentToken) opts.headers['Authorization'] = 'Bearer ' + currentToken;
+    if (body) opts.body = JSON.stringify(body);
+    var res = await fetch(CONTENT_API + '?action=' + action, opts);
+    return await res.json();
+}
+
+async function init() {
+    currentToken = localStorage.getItem(TOKEN_KEY);
+    if (currentToken) {
+        // Verify token. On a network/offline error do NOT drop the token —
+        // restore the user from the cached blob so a logged-in user who opens
+        // this page offline stays logged in (matches js/auth_widget.js).
+        var data = null;
+        try {
+            var res = await fetch(AUTH_API, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'check_session', token: currentToken })
+            });
+            data = await res.json();
+        } catch (e) { data = null; }
+        if (data && data.ok) {
+            currentUser = data.user;
+            try { localStorage.setItem(TOKEN_KEY + '_user', JSON.stringify(data.user)); } catch(_) {}
+        } else if (data && data.ok === false) {
+            // Server reachable and rejected the token — genuine stale token.
+            currentToken = null;
+            localStorage.removeItem(TOKEN_KEY);
+        } else {
+            // Network/offline error — keep the token and restore the cached
+            // user so we stay logged in offline instead of falling to guest.
+            try {
+                var cached = JSON.parse(localStorage.getItem(TOKEN_KEY + '_user') || 'null');
+                if (cached) currentUser = cached;
+            } catch (_) {}
+        }
+    }
+    updateUI();
+    await loadContent();
+}
+
+function updateUI() {
+    var display = document.getElementById('userDisplay');
+    var banner = document.getElementById('guestBanner');
+    if (isLoggedIn()) {
+        display.textContent = 'שלום ' + currentUser.first_name + ' ' + (currentUser.last_name || '');
+        banner.style.display = 'none';
+    } else {
+        display.innerHTML = '<a href="#" onclick="doLogin()" style="color:white">התחברות</a>';
+        banner.style.display = '';
+    }
+}
+
+function doLogin() {
+    window.location.href = 'index.html?login=1&redirect=my-content.html';
+}
+
+async function loadContent() {
+    var grid = document.getElementById('contentGrid');
+    var localItems = getLocalItems();
+    if (currentTypeFilter) localItems = localItems.filter(function(x) { return x.content_type === currentTypeFilter; });
+
+    if (isLoggedIn()) {
+        var body = {};
+        if (currentTypeFilter) body.content_type = currentTypeFilter;
+        try {
+            var data = await api('list', body);
+            if (!data.success) { grid.innerHTML = '<div class="empty-state"><p>שגיאה בטעינה</p></div>'; return; }
+            allItems = localItems.concat(data.items);
+        } catch (e) {
+            // Offline — show local items only instead of breaking.
+            allItems = localItems;
+        }
+    } else {
+        allItems = localItems;
+    }
+    renderItems(allItems);
+}
+
+function renderItems(items) {
+    var grid = document.getElementById('contentGrid');
+    if (!items.length) {
+        grid.innerHTML = '<div class="empty-state"><div class="icon">+</div><p>אין תוכן עדיין. לחץ על "+ חדש" כדי ליצור.</p></div>';
+        return;
+    }
+    grid.innerHTML = items.map(function(item) {
+        var data = typeof item.data === 'string' ? JSON.parse(item.data) : (item.data || {});
+        var preview = data.text || JSON.stringify(data).substring(0, 80);
+        var local = !!item.is_local;
+        var idArg = local ? "'" + item.id + "'" : item.id;
+        var badge = local ? '<span class="card-local-badge">מקומי 💾</span>' : '<span class="card-server-badge">שרת ☁️</span>';
+        var uploadBtn = '';
+        if (local && isLoggedIn()) {
+            uploadBtn = '<button class="btn btn-sm btn-primary" style="margin-top:8px" onclick="event.stopPropagation();uploadLocal(\'' + item.id + '\')">העלה לשרת ⬆️</button>';
+        }
+        return '<div class="content-card' + (local ? ' content-card-local' : '') + '" onclick="openEdit(' + idArg + ')">' +
+            '<div class="card-color-strip" style="background:' + (item.color || '#0d9488') + '"></div>' +
+            '<div class="card-body">' +
+                '<div class="card-top-row"><span class="card-type ' + item.content_type + '">' + typeLabel(item.content_type) + '</span>' + badge + '</div>' +
+                '<div class="card-title">' + escapeHtml(item.title) + '</div>' +
+                '<div class="card-preview">' + escapeHtml(preview) + '</div>' +
+                uploadBtn +
+            '</div>' +
+            '<div class="card-footer"><span>' + formatDate(item.updated || item.created) + '</span></div>' +
+        '</div>';
+    }).join('');
+}
+
+function openCreateModal(item) {
+    editingId = item ? item.id : null;
+    document.getElementById('modalTitle').textContent = item ? 'עריכת פריט' : 'פריט חדש';
+    document.getElementById('formType').value = item ? item.content_type : (currentTypeFilter || 'analysis');
+    document.getElementById('formTitle').value = item ? item.title : '';
+    var data = item ? (typeof item.data === 'string' ? JSON.parse(item.data) : item.data) : {};
+    document.getElementById('formText').value = data.text || '';
+    document.getElementById('formColor').value = item ? (item.color || '#0d9488') : '#0d9488';
+    updateColorPreview();
+    document.getElementById('deleteBtn').style.display = item ? 'block' : 'none';
+    document.getElementById('formType').disabled = !!item;
+    document.getElementById('createModal').classList.add('active');
+}
+
+function openEdit(id) {
+    if (typeof id === 'string' && id.indexOf('local_') === 0) {
+        var item = getLocalItems().find(function(x) { return x.id === id; });
+        if (item) openCreateModal(item);
+    } else {
+        var item = allItems.find(function(x) { return x.id == id; });
+        if (item) openCreateModal(item);
+    }
+}
+
+async function saveContent() {
+    var title = document.getElementById('formTitle').value.trim();
+    var text = document.getElementById('formText').value.trim();
+    var type = document.getElementById('formType').value;
+    var color = document.getElementById('formColor').value;
+    if (!title) { showToast('נדרשת כותרת'); return; }
+
+    // Edit local item
+    if (editingId && typeof editingId === 'string' && editingId.indexOf('local_') === 0) {
+        var items = getLocalItems();
+        for (var i = 0; i < items.length; i++) {
+            if (items[i].id === editingId) {
+                items[i].title = title;
+                items[i].data = { text: text };
+                items[i].color = color;
+                items[i].updated = new Date().toISOString().replace('T', ' ').substring(0, 16);
+                break;
+            }
+        }
+        setLocalItems(items);
+        showToast('עודכן מקומית 💾');
+        closeModal('createModal'); loadContent(); return;
+    }
+
+    if (!isLoggedIn()) {
+        // Guest: save locally
+        var now = new Date().toISOString().replace('T', ' ').substring(0, 16);
+        addLocalItem({ id: 'local_' + Date.now(), content_type: type, title: title, data: { text: text }, color: color, created: now, updated: now, is_local: true });
+        showToast('נשמר מקומית בדפדפן 💾');
+        closeModal('createModal'); loadContent(); return;
+    }
+
+    // Logged in: server
+    if (editingId) {
+        var data = await api('update', { id: editingId, title: title, data: { text: text }, color: color });
+        if (data.success) { showToast('עודכן בשרת ✓'); } else { showToast('שגיאה: ' + (data.error || '')); }
+    } else {
+        var data = await api('create', { content_type: type, title: title, data: { text: text }, color: color });
+        if (data.success) { showToast('נשמר בשרת ✓'); } else { showToast('שגיאה: ' + (data.error || '')); }
+    }
+    closeModal('createModal'); loadContent();
+}
+
+async function deleteContent() {
+    if (!editingId) return;
+    if (!confirm('למחוק את הפריט?')) return;
+    if (typeof editingId === 'string' && editingId.indexOf('local_') === 0) {
+        removeLocalItem(editingId);
+        showToast('נמחק');
+    } else {
+        var data = await api('delete', { id: editingId });
+        if (data.success) showToast('נמחק');
+    }
+    closeModal('createModal'); loadContent();
+}
+
+async function uploadLocal(localId) {
+    var item = getLocalItems().find(function(x) { return x.id === localId; });
+    if (!item) return;
+    var data = await api('create', { content_type: item.content_type, title: item.title, data: item.data || {}, color: item.color || '#0d9488' });
+    if (data.success) {
+        removeLocalItem(localId);
+        showToast('הועלה לשרת ✓');
+        loadContent();
+    }
+}
+
+function closeModal(id) { document.getElementById(id).classList.remove('active'); }
+function updateColorPreview() { document.getElementById('colorPreview').style.background = document.getElementById('formColor').value; }
+function showToast(msg) { var t = document.getElementById('toast'); t.textContent = msg; t.classList.add('show'); setTimeout(function() { t.classList.remove('show'); }, 3000); }
+
+function debounceSearch() { clearTimeout(searchTimer); searchTimer = setTimeout(doSearch, 300); }
+function doSearch() {
+    var q = document.getElementById('searchInput').value.trim().toLowerCase();
+    if (!q) { renderItems(allItems); return; }
+    renderItems(allItems.filter(function(item) {
+        var data = typeof item.data === 'string' ? JSON.parse(item.data) : (item.data || {});
+        return (item.title || '').toLowerCase().indexOf(q) !== -1 || (data.text || '').toLowerCase().indexOf(q) !== -1;
+    }));
+}
+
+function filterByType(el) {
+    document.querySelectorAll('.type-pill').forEach(function(p) { p.classList.remove('active'); });
+    el.classList.add('active');
+    currentTypeFilter = el.dataset.type;
+    loadContent();
+}
+
+init();
+</script>
+</body>
+</html>

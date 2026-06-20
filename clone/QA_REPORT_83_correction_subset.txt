@@ -1,0 +1,48 @@
+## Verdict
+PASS
+
+## Scope
+#83 manager split: deliver + browser-QA the vocabulary/content correction subset
+FIRST (#1322, #1324, #1325, #1326), defer #1323 if needed. Outcome: the
+correction subset is COMPLETE and browser-verified; #1323 note-buttons was ALSO
+completed (no deferral needed). BUILD-ONLY, no deploy.
+
+## Environment
+macOS; projects/פלונטר/clone/vocab.html. Browser QA via headless Chromium
+(python playwright) on local static server (clone dir) port 8792, reading the
+live BUILTIN_CATEGORIES the app renders from.
+
+## Probes
+- Category 'חפיפה - מושכים בחות׳ים' word count = 18; 'חפיפה - חג החירות' = 7.
+- #1322 9/9 corrected forms present in-app: إِعْتَرَضَ هُ, إِقْتَحَمَ هُ, إِمْتَلَكَ هُ, إِسْتَوْلَى عَلَى, عَرَبَة, قَارِب (ج) قَوَارِبُ, أَطْلَقَ بِٱسْم, مَنْظُومَة ٱلصَّوَارِيخ, صَوْبَ -> all true.
+- #1326 gloss of إِقْتَحَمَ هُ == "פרץ ל-, חדר אל-" -> true.
+- #1324 دُونَ شَكّ present in 'חפיפה - חג החירות' -> true.
+- Negative checks (old forms gone): اِعْتَرَضَ removed, عَرَبِيَّة removed, دُون شَكّ removed -> all true.
+- node --check: 7/7 inline scripts OK.
+
+## Screenshots
+N/A — no UI surface (verified via in-browser BUILTIN_CATEGORIES data assertions;
+the vocab category list is data-driven and was loaded in a real Chromium).
+
+## Findings
+- #1322 DONE + verified (9 diacritic corrections).
+- #1326 DONE + verified (gloss "חדר אל-").
+- #1324 DONE + verified (7 photo words present; دُونَ شَكّ fatha fix).
+- #1325 DONE (diagnosis): same root cause as task #80 — app loaded legacy
+  /plonter/vocab.html (no category/group); fixed by v1.12 APK repointing to
+  /clone/. No clone code change.
+- #1323 ALSO DONE (not deferred): audit note-memory + suggestions + niqqud
+  palette ported from legacy root vocab.html into clone; browser-verified
+  (11/11 functions live, note-memory roundtrip OK, palette generates).
+
+## Limitations / Not checked
+- No deploy (manager handles exposure window + ?v= bump).
+- Owner-gated audit-note UI not visually QA'd on device (gated to amitai.shalem);
+  verified at data + function + memory level.
+- #1325 device confirmation needs v1.12 APK install.
+
+## Reproduction / fix hints
+- Changed file: projects/פלונטר/clone/vocab.html (all of #1322/#1323/#1324/#1326).
+  APK: projects/פלונטר/vocab_app/plonter-vocab-1.12-debug.apk (#80, fixes #1325).
+- Handoff: clone/HANDOFF_20260609_bdika_1322_1325.md.
+- Deploy step (manager): bump ?v=, SFTP clone/vocab.html to iseemath.co/plonter/clone/.

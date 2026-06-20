@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>media tab harness</title>
+</head>
+<body>
+<div id="welcome-screen" style="display:none"></div>
+<div id="game-screen" style="display:block">lesson area</div>
+<!-- Stub MediaStorage like index.html has it (vocab.html does NOT load it) -->
+<script>var MediaStorage = { renderMediaTab: function(){} };</script>
+<script src="js/dictionary.js"></script>
+<script>
+  // Simulate the lesson presenter setting a media page BEFORE the dict panel
+  // is ever built (panel is lazy). This is Amitai's exact scenario.
+  document.addEventListener('DOMContentLoaded', function() {
+    Dictionary.init();
+    Dictionary.setMediaPage({ videoUrl: 'https://example.com/v.mp4', title: 'שקף מדיה' });
+  });
+</script>
+</body>
+</html>

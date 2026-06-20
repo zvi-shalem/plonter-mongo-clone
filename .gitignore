@@ -1,0 +1,11 @@
+# Never commit secrets or data into this public deploy repo.
+.mongo_uri
+*.pem
+id_rsa*
+*.key
+.env
+*.db
+*.sqlite
+vocab_audio_blobs/
+clone/api/
+**/.DS_Store

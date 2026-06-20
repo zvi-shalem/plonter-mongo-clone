@@ -1,0 +1,53 @@
+## Verdict
+PASS_WITH_CAVEATS
+
+## Scope
+Plonter bdikot #1322-#1325 in clone/vocab.html (BUILD-ONLY, no deploy):
+#1322 diacritic corrections, #1324 photo-content verify, #1323 restore audit
+note buttons/shortcuts/memory, #1325 diagnose "מושכים בחות׳ים" missing in
+"יישומים".
+
+## Environment
+macOS; source of truth live https://iseemath.co/plonter/clone/vocab.html (local
+SHA 6d3b13e5... matched live before edits). Verification: node --check on inline
+scripts; headless Chromium (python playwright) on local static server port 8791.
+
+## Probes
+- Pre-edit local clone/vocab.html SHA256 6d3b13e5edd114b845dcde5c76905f15e35b04bd3cba6058eb916b9492b7e9e3 == live clone SHA256.
+- #1322: 9/9 corrections present post-edit (إِعْتَرَضَ, إِقْتَحَمَ, إِمْتَلَكَ, إِسْتَوْلَى, عَرَبَة, قَوَارِبُ, بِٱسْم, ٱلصَّوَارِيخ, صَوْبَ).
+- #1324: category 'חפיפה - חג החירות' word count = 7, matches photo; 1 fix دُون->دُونَ.
+- #1323: ported feature funcs present counts -> _auditRememberRecentNote=2, _auditNiqqudPaletteHtml=2, audit-note-suggestions=3, _auditRenderNoteSuggestions=4.
+- node --check: 7/7 inline script blocks OK.
+- headless probe: 11/11 ported functions typeof=function; note-memory roundtrip memOk=true; niqqud palette palOk=true.
+- console errors on load: 3, all the same backend 404 (/plonter/api/vocab_audio_api.php); 0 JS-module 404.
+- #1325: legacy /plonter/vocab.html grep "מושכים בחות"=0, "ישומים"=0; clone=2 and 3 respectively.
+
+## Screenshots
+N/A — no UI surface captured: audit-note game is owner-gated (amitai.shalem) and
+could not be entered headlessly; verified at function + memory + palette-HTML
+level instead. Data/diagnosis bdikot have no standalone UI.
+
+## Findings
+- #1322 DONE: 9 diacritic corrections applied to embedded category data.
+- #1324 DONE: 7 photo words already present; added fatha دُونَ to match photo.
+- #1323 DONE (RESTORED not invented): audit note-memory + suggestions dropdown +
+  niqqud palette + ע↔ع/reversed-diacritic note toolbar ported from legacy root
+  vocab.html (lines 10906-11102) into clone; textarea rewired. All deps guarded
+  or already in clone.
+- #1325 DIAGNOSIS: not a clone bug. Clone groups the category under 'ישומים'
+  correctly. Amitai's installed app loads legacy /plonter/vocab.html (which lacks
+  the category + group). Resolved by v1.12 APK (task #80) repointing app to
+  /clone/. No code change here.
+
+## Limitations / Not checked
+- No on-device/owner-gated QA of the audit-note UI (gated to amitai.shalem;
+  headless can't authenticate as owner). Function-level + memory roundtrip +
+  palette generation verified instead; full visual UI QA is a manager/device step.
+- No deploy: clone/vocab.html not uploaded; manager handles exposure window + ?v= bump.
+- #1325 device confirmation requires installing v1.12 APK.
+
+## Reproduction / fix hints
+- Changed file: projects/פלונטר/clone/vocab.html (data edits #1322/#1324 + audit
+  note feature port #1323). Handoff: clone/HANDOFF_20260609_bdika_1322_1325.md.
+- Deploy: bump ?v= on script/style URLs, SFTP clone/vocab.html to iseemath.co/plonter/clone/.
+- #1325: distribute v1.12 APK (vocab_app/plonter-vocab-1.12-debug.apk from task #80).
